@@ -1,0 +1,370 @@
+body {
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+  padding: 2px 8px 2px 4px;
+}
+
+.empty {
+  color: var(--vscode-descriptionForeground);
+  text-align: center;
+  margin-top: 24px;
+}
+
+.project > h2 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--vscode-descriptionForeground);
+  margin: 8px 0 6px;
+}
+
+/* Guides d'arbre : projet → sessions → agents → agents de workflow. */
+.sessions {
+  margin-left: 5px;
+  padding-left: 12px;
+  border-left: 1px solid var(--vscode-tree-inactiveIndentGuidesStroke, rgba(128, 128, 128, 0.35));
+}
+
+.card {
+  position: relative;
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-widget-border, transparent);
+  border-radius: 5px;
+  padding: 4px 8px 5px;
+  margin-bottom: 5px;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 12px;
+  width: 10px;
+  height: 1px;
+  background: var(--vscode-tree-inactiveIndentGuidesStroke, rgba(128, 128, 128, 0.35));
+}
+
+.card.active {
+  border-color: var(--vscode-charts-green, #89d185);
+}
+
+/* Une session qui attend une réponse prime sur l'état actif. */
+.card.waiting {
+  border-color: var(--vscode-charts-orange, #d18616);
+}
+
+.card.waiting .timer {
+  color: var(--vscode-charts-orange, #d18616);
+}
+
+/* Question en attente affichée sur la card (2 lignes max, texte complet au survol). */
+.question {
+  color: var(--vscode-charts-orange, #d18616);
+  font-size: 10px;
+  margin-top: 2px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  word-break: break-word;
+}
+
+.card header {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.card header .dot {
+  margin-top: 4px;
+}
+
+/* Titre sur 2 lignes maximum ; le texte complet reste lisible au survol (title). */
+.card h3 {
+  flex: 1;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  word-break: break-word;
+}
+
+.timer {
+  flex: none;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--vscode-descriptionForeground);
+}
+
+.card.active .timer {
+  color: var(--vscode-charts-green, #89d185);
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--vscode-descriptionForeground);
+}
+
+.dot.active {
+  background: var(--vscode-charts-green, #89d185);
+  border-color: var(--vscode-charts-green, #89d185);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% { opacity: 0.4; }
+}
+
+.meta {
+  display: flex;
+  align-items: baseline;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  margin-top: 1px;
+}
+
+/* Modèle · effort · âge, ancré à droite de la ligne méta. */
+.meta-text {
+  margin-left: auto;
+  padding-left: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge {
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  border-radius: 8px;
+  padding: 0 5px;
+  margin-right: 5px;
+  font-size: 9px;
+}
+
+/* Tag coloré par famille de modèle ; texte sur fond coloré = couleur du fond d'éditeur (lisible dans les deux thèmes). */
+.badge.model-fable,
+.badge.model-mythos { background: var(--vscode-charts-purple, #b180d7); color: var(--vscode-editor-background, #1e1e1e); }
+.badge.model-opus { background: var(--vscode-charts-blue, #3794ff); color: var(--vscode-editor-background, #1e1e1e); }
+.badge.model-sonnet { background: var(--vscode-charts-yellow, #cca700); color: var(--vscode-editor-background, #1e1e1e); }
+.badge.model-haiku { background: var(--vscode-charts-green, #89d185); color: var(--vscode-editor-background, #1e1e1e); }
+
+.branch {
+  color: var(--vscode-gitDecoration-modifiedResourceForeground, var(--vscode-charts-blue, #75beff));
+  margin-right: 5px;
+  font-size: 9px;
+}
+
+.agent-type {
+  flex: none;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  border-radius: 7px;
+  padding: 0 4px;
+  font-size: 8px;
+  text-transform: lowercase;
+}
+
+/* Liste de tâches (TodoWrite) : « où en est » le travail de la session. */
+.todos {
+  margin-top: 5px;
+  padding-top: 4px;
+  border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+}
+
+.todos-head {
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  color: var(--vscode-descriptionForeground);
+  margin-bottom: 2px;
+}
+
+.todos ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.todo {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 10px;
+  padding: 0.5px 0;
+}
+
+.todo-tick {
+  flex: none;
+  font-size: 8px;
+}
+
+.todo-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todo.done .todo-text {
+  color: var(--vscode-descriptionForeground);
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+
+.todo.doing .todo-text {
+  color: var(--vscode-foreground);
+  font-weight: 600;
+}
+
+.todo.pending .todo-text {
+  color: var(--vscode-descriptionForeground);
+}
+
+.todo.more {
+  font-size: 9px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Barre de contexte en pied de card. */
+.ctx {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.bar {
+  flex: 1;
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--vscode-progressBar-background, #333);
+  opacity: 0.9;
+}
+
+.fill.ok { fill: var(--vscode-charts-green, #89d185); }
+.fill.warn { fill: var(--vscode-charts-orange, #d18616); }
+.fill.crit { fill: var(--vscode-charts-red, #f14c4c); }
+
+.ctx-label {
+  font-size: 9px;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+.ctx-label.warn { color: var(--vscode-charts-orange, #d18616); }
+.ctx-label.crit { color: var(--vscode-charts-red, #f14c4c); font-weight: 600; }
+
+.agents {
+  list-style: none;
+  margin: 3px 0 0 2px;
+  padding-left: 12px;
+  border-left: 1px solid var(--vscode-tree-inactiveIndentGuidesStroke, rgba(128, 128, 128, 0.35));
+}
+
+.agents li {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 1px 0;
+  font-size: 11px;
+  position: relative;
+}
+
+.agents li > .dot,
+.agents li > .check,
+.agents li > .gauge,
+.agents li > .agent-left,
+.agents li > .agent-desc {
+  margin-top: 2px;
+}
+
+/* Colonne de gauche d'un agent : tag de type, verbe d'activité en dessous. */
+.agent-left {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+
+.agent-verb {
+  font-size: 9px;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+.agents > li::before,
+.workflow > ul > li::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 0.75em;
+  width: 9px;
+  height: 1px;
+  background: var(--vscode-tree-inactiveIndentGuidesStroke, rgba(128, 128, 128, 0.35));
+}
+
+.agents li.workflow {
+  display: block;
+}
+
+/* Décalage des sous-agents selon leur filiation (parent → enfant → petit-enfant). */
+.agents li.depth-1 { margin-left: 14px; }
+.agents li.depth-2 { margin-left: 28px; }
+.agents li.depth-3 { margin-left: 42px; }
+
+.workflow > ul {
+  list-style: none;
+  margin: 0 0 0 2px;
+  padding-left: 12px;
+  border-left: 1px solid var(--vscode-tree-inactiveIndentGuidesStroke, rgba(128, 128, 128, 0.35));
+}
+
+.wf-label {
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.wf-count {
+  font-size: 9px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Libellé sur 2 lignes maximum ; le texte complet reste lisible au survol (title). */
+.agent-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  word-break: break-word;
+}
+
+.agent-desc {
+  margin-left: auto;
+  flex: none;
+  font-size: 9px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.check { color: var(--vscode-descriptionForeground); }
+
+.gauge { flex: none; }
+.gauge-track {
+  fill: none;
+  stroke: var(--vscode-progressBar-background, #333);
+  stroke-width: 2.5;
+}
+.gauge-fill {
+  fill: none;
+  stroke: var(--vscode-charts-orange, #d18616);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}

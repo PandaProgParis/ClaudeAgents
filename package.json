@@ -1,0 +1,124 @@
+{
+  "name": "claude-agents",
+  "displayName": "Claude Agents",
+  "description": "Real-time view of the Claude Code sessions, agents and sub-agents running on your machine, across all projects. Read-only access to ~/.claude.",
+  "version": "0.7.0",
+  "publisher": "pandaprog",
+  "license": "MIT",
+  "icon": "assets/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PandaProgParis/ClaudeAgents.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PandaProgParis/ClaudeAgents/issues"
+  },
+  "homepage": "https://github.com/PandaProgParis/ClaudeAgents#readme",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "claude",
+    "claude code",
+    "agents",
+    "monitoring",
+    "ai"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "claude-agents",
+          "title": "Claude Agents",
+          "icon": "assets/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "claude-agents": [
+        {
+          "type": "webview",
+          "id": "claudeAgentsCards",
+          "name": "%view.sessions%"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "claudeAgents.focusCurrentProject",
+        "title": "%command.focusCurrentProject%",
+        "category": "Claude Agents",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "claudeAgents.showAllProjects",
+        "title": "%command.showAllProjects%",
+        "category": "Claude Agents",
+        "icon": "$(filter-filled)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "claudeAgents.focusCurrentProject",
+          "when": "view == claudeAgentsCards && !claudeAgents.currentProjectOnly",
+          "group": "navigation"
+        },
+        {
+          "command": "claudeAgents.showAllProjects",
+          "when": "view == claudeAgentsCards && claudeAgents.currentProjectOnly",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Claude Agents",
+      "properties": {
+        "claudeAgents.showFinishedAgents": {
+          "type": "string",
+          "enum": [
+            "always",
+            "temporarily",
+            "never"
+          ],
+          "default": "temporarily",
+          "markdownDescription": "%config.showFinishedAgents%"
+        },
+        "claudeAgents.finishedAgentRetentionSeconds": {
+          "type": "number",
+          "default": 60,
+          "minimum": 0,
+          "markdownDescription": "%config.finishedAgentRetentionSeconds%"
+        },
+        "claudeAgents.inactiveSessionRetentionMinutes": {
+          "type": "number",
+          "default": 10,
+          "minimum": 0,
+          "markdownDescription": "%config.inactiveSessionRetentionMinutes%"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "vscode:prepublish": "npm run build",
+    "package": "npm run typecheck && npm run test && vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "@types/vscode": "1.90.0",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.28.1",
+    "happy-dom": "^20.10.6",
+    "sharp": "^0.35.3",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

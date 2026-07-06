@@ -1,0 +1,8 @@
+{
+  "view.sessions": "Sessions",
+  "command.focusCurrentProject": "Afficher uniquement le projet courant",
+  "command.showAllProjects": "Afficher tous les projets",
+  "config.showFinishedAgents": "Affichage des agents terminés : `always` (toujours visibles, grisés), `temporarily` (masqués après le délai de rétention), `never` (agents actifs uniquement).",
+  "config.finishedAgentRetentionSeconds": "Délai (en secondes depuis la dernière activité) avant masquage d'un agent terminé, en mode `temporarily`.",
+  "config.inactiveSessionRetentionMinutes": "Délai (en minutes depuis la dernière activité) avant masquage d'une session inactive. `0` = toujours afficher."
+}
