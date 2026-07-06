@@ -1,0 +1,12 @@
+node_modules/**
+src/**
+docs/**
+.superpowers/**
+.vscode/**
+.gitignore
+esbuild.mjs
+dist/dev-server.js
+dist/dev-server.js.map
+vitest.config.ts
+tsconfig.json
+*.vsix
