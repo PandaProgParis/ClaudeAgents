@@ -3,7 +3,8 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { STRINGS, resolveLocale } from './i18n';
-import { buildState } from './state';
+import { buildState, localUrls } from './state';
+import { probeUrls } from './portProbe';
 import { countWaitingSessions } from './visibility';
 import { CardsViewProvider } from './cardsView';
 
@@ -43,6 +44,8 @@ export function activate(context: vscode.ExtensionContext): void {
           : undefined,
         log: (message) => output.appendLine(message),
       });
+      // Sondage des adresses locales en arrière-plan : le prochain scan lira le résultat.
+      void probeUrls(localUrls(state.projects)).catch(() => undefined);
       const waiting = countWaitingSessions(state.projects);
       provider.setBadge(waiting > 0 ? { value: waiting, tooltip: STRINGS[locale].waitingBadge(waiting) } : undefined);
       provider.postState(state);

@@ -1,7 +1,8 @@
 import { readEffortLevel, scan } from './scanner';
+import { isUrlAlive } from './portProbe';
 import { filterProjectsForWorkspace } from './visibility';
 import type { Locale } from './i18n';
-import type { FinishedAgentSettings, StateMessage } from './types';
+import type { FinishedAgentSettings, ProjectNode, StateMessage } from './types';
 
 export interface StateOptions {
   claudeDir: string;
@@ -26,12 +27,40 @@ export function buildState(options: StateOptions): StateMessage {
     log: options.log,
     isPidAlive: options.isPidAlive,
   });
+  const kept = options.workspaceFolders ? filterProjectsForWorkspace(projects, options.workspaceFolders) : projects;
+  annotateUrlLiveness(kept);
   return {
-    projects: options.workspaceFolders ? filterProjectsForWorkspace(projects, options.workspaceFolders) : projects,
+    projects: kept,
     effortLevel: readEffortLevel(options.claudeDir),
     settings: options.settings,
     inactiveSessionRetentionMinutes: options.inactiveSessionRetentionMinutes,
     locale: options.locale,
     now: options.now,
   };
+}
+
+/** Adresses locales servies par les commandes de fond : ce que l'hôte donne à sonder après chaque scan. */
+export function localUrls(projects: ProjectNode[]): string[] {
+  const urls: string[] = [];
+  for (const project of projects) {
+    for (const session of project.sessions) {
+      for (const task of session.backgroundTasks ?? []) {
+        if (task.url !== undefined) {
+          urls.push(task.url);
+        }
+      }
+    }
+  }
+  return urls;
+}
+
+/** Reporte sur chaque commande la vivacité déjà mesurée de son port (le scan ne sonde rien lui-même). */
+function annotateUrlLiveness(projects: ProjectNode[]): void {
+  for (const project of projects) {
+    for (const session of project.sessions) {
+      for (const task of session.backgroundTasks ?? []) {
+        task.urlAlive = task.url === undefined ? undefined : isUrlAlive(task.url);
+      }
+    }
+  }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countWaitingSessions, filterProjectsForWorkspace, filterVisibleSessions } from './visibility';
+import { countWaitingSessions, filterProjectsForWorkspace, filterVisibleSessions, visibleSessionViews } from './visibility';
 import type { ProjectNode, SessionNode } from './types';
 
 const NOW = 1_800_000_000_000;
@@ -100,5 +100,43 @@ describe('filterProjectsForWorkspace', () => {
 
   it('ne garde rien sans dossier de workspace', () => {
     expect(filterProjectsForWorkspace([projectNode('c:\\dev\\marketing')], [])).toEqual([]);
+  });
+});
+
+describe('visibleSessionViews', () => {
+  const liveTask = { id: 't1', command: 'npm run dev', startedAt: NOW - 60_000, url: 'http://localhost:6602/', urlAlive: true };
+  const deadTask = { id: 't2', command: 'npm run dev', startedAt: NOW - 60_000, url: 'http://localhost:6603/', urlAlive: false };
+  const expired = () => session({ lastActivity: NOW - 3_600_000 });
+
+  it('laisse une session visible dépliée', () => {
+    const fresh = session({ lastActivity: NOW - 60_000 });
+    expect(visibleSessionViews([fresh], 10, NOW)).toEqual([{ session: fresh, collapsed: false }]);
+  });
+
+  it('réduit une session expirée qui sert encore une adresse locale', () => {
+    const s = expired();
+    s.backgroundTasks = [liveTask];
+    expect(visibleSessionViews([s], 10, NOW)).toEqual([{ session: s, collapsed: true }]);
+  });
+
+  it('supprime une session expirée dont les ports sont morts', () => {
+    const s = expired();
+    s.backgroundTasks = [deadTask];
+    expect(visibleSessionViews([s], 10, NOW)).toEqual([]);
+  });
+
+  it('ne ressuscite pas une session expirée sur une URL jamais sondée : il faut une preuve de vie', () => {
+    const s = expired();
+    s.backgroundTasks = [{ id: 't3', command: 'x', startedAt: NOW, url: 'http://localhost:7000/' }];
+    expect(visibleSessionViews([s], 10, NOW)).toEqual([]);
+  });
+
+  it('supprime une session expirée sans commande de fond', () => {
+    expect(visibleSessionViews([expired()], 10, NOW)).toEqual([]);
+  });
+
+  it('garde tout déplié quand la rétention est désactivée', () => {
+    const s = expired();
+    expect(visibleSessionViews([s], 0, NOW)).toEqual([{ session: s, collapsed: false }]);
   });
 });

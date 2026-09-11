@@ -27,6 +27,7 @@ import {
   textLine,
   backgroundBashLine,
   backgroundResultLine,
+  orphanNotificationLine,
   taskNotificationLine,
   userLine,
   writeAgent,
@@ -1228,6 +1229,60 @@ describe('scan — tâches en arrière-plan', () => {
     touch(filePath, 100_000);
     const [project] = scan({ claudeDir: dir, now: NOW, isPidAlive: alive });
     expect(project.sessions[0].backgroundTasks).toBeUndefined();
+  });
+
+  function secondServerLines(dir: string): string[] {
+    return [
+      backgroundBashLine('t2', 'npm run api', 'Start the API server', NOW - 590_000),
+      backgroundResultLine('t2', 'def456', join(dir, 'tasks', 'def456.output'), NOW - 589_000),
+      textLine('L’API tourne.', NOW - 588_000),
+    ];
+  }
+
+  it('retire toutes les tâches listées par une notification qui en groupe plusieurs', () => {
+    const dir = makeClaudeDir();
+    writeRegistry(dir, registryEntry());
+    writeTranscript(
+      dir,
+      PROJECT_DIR,
+      SESSION_ID,
+      [...serverLines(dir), ...secondServerLines(dir), orphanNotificationLine(['abc123', 'def456'], NOW - 1_000)],
+      1_000,
+    );
+    const [project] = scan({ claudeDir: dir, now: NOW, isPidAlive: alive });
+    expect(project.sessions[0].backgroundTasks).toBeUndefined();
+  });
+
+  it('rattrape une notification groupée passée hors de la fenêtre entre deux scans', () => {
+    const dir = makeClaudeDir();
+    writeRegistry(dir, registryEntry());
+    const filePath = writeTranscript(dir, PROJECT_DIR, SESSION_ID, [...serverLines(dir), ...secondServerLines(dir)], 588_000);
+    expect(scan({ claudeDir: dir, now: NOW, isPidAlive: alive })[0].sessions[0].backgroundTasks).toHaveLength(2);
+    const filler = Array.from({ length: 200 }, (_, i) => textLine('x'.repeat(400) + i, NOW - 500_000 + i));
+    appendFileSync(filePath, [orphanNotificationLine(['abc123', 'def456'], NOW - 550_000), ...filler].join('\n') + '\n');
+    touch(filePath, 100_000);
+    const [project] = scan({ claudeDir: dir, now: NOW, isPidAlive: alive });
+    expect(project.sessions[0].backgroundTasks).toBeUndefined();
+  });
+
+  it('retire une tâche dont la sortie se termine par le marqueur [killed]', () => {
+    const dir = makeClaudeDir();
+    mkdirSync(join(dir, 'tasks'), { recursive: true });
+    writeFileSync(join(dir, 'tasks', 'abc123.output'), 'VITE ready on http://localhost:5173/\r\n\n[killed]\n');
+    writeRegistry(dir, registryEntry());
+    writeTranscript(dir, PROJECT_DIR, SESSION_ID, serverLines(dir), 598_000);
+    const [project] = scan({ claudeDir: dir, now: NOW, isPidAlive: alive });
+    expect(project.sessions[0].backgroundTasks).toBeUndefined();
+  });
+
+  it('garde la tâche quand [killed] n’est qu’une ligne de log au milieu de la sortie', () => {
+    const dir = makeClaudeDir();
+    mkdirSync(join(dir, 'tasks'), { recursive: true });
+    writeFileSync(join(dir, 'tasks', 'abc123.output'), '[killed]\nserveur relancé\nhttp://localhost:5173/\n');
+    writeRegistry(dir, registryEntry());
+    writeTranscript(dir, PROJECT_DIR, SESSION_ID, serverLines(dir), 598_000);
+    const [project] = scan({ claudeDir: dir, now: NOW, isPidAlive: alive });
+    expect(project.sessions[0].backgroundTasks?.map((task) => task.id)).toEqual(['abc123']);
   });
 });
 

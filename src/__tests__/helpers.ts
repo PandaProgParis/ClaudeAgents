@@ -252,3 +252,23 @@ export function taskNotificationLine(
     ? JSON.stringify({ type: 'queue-operation', operation: 'enqueue', timestamp: iso, content })
     : JSON.stringify({ type: 'user', timestamp: iso, message: { role: 'user', content } });
 }
+
+/**
+ * Notification de rattrapage des tâches orphelines, telle que Claude Code l'écrit : plusieurs <task-id>
+ * dans un seul bloc, suivis d'un marqueur interne __orphan_summary__ qui n'est pas un identifiant de tâche.
+ */
+export function orphanNotificationLine(taskIds: string[], timestamp: number, kind: 'queue' | 'user' = 'queue'): string {
+  const content = [
+    '<task-notification>',
+    ...taskIds.map((id) => `<task-id>${id}</task-id>`),
+    '<task-id>__orphan_summary__:shell</task-id>',
+    '<status>stopped</status>',
+    `<summary>${taskIds.length} background shell command tasks didn't finish before the previous session ended. Task ids: ${taskIds.join(', ')}.</summary>`,
+    '<note>No completion record was found for them in the previous session.</note>',
+    '</task-notification>',
+  ].join('\n');
+  const iso = new Date(timestamp).toISOString();
+  return kind === 'queue'
+    ? JSON.stringify({ type: 'queue-operation', operation: 'enqueue', timestamp: iso, content })
+    : JSON.stringify({ type: 'user', timestamp: iso, message: { role: 'user', content } });
+}

@@ -291,7 +291,9 @@ function isRecord(value: unknown): value is JsonRecord {
 /** Ce que Claude Code renvoie en tool_result d'un Bash lancé en arrière-plan. */
 const BACKGROUND_RESULT_PATTERN = /Command running in background with ID: (\S+?)\. Output is being written to: (.+?\.output)/;
 /** Contenu (déjà désérialisé) d'une notification de fin de tâche, enfilée ou livrée à l'agent. */
-const TASK_NOTIFICATION_PATTERN = /^<task-notification>\s*<task-id>([^<\s]+)<\/task-id>/;
+const TASK_NOTIFICATION_PATTERN = /^<task-notification>/;
+/** Une même notification en groupe parfois plusieurs (rattrapage des tâches orphelines d'une session passée). */
+const TASK_ID_PATTERN = /<task-id>([^<\s]+)<\/task-id>/g;
 
 /** Texte d'un bloc tool_result : chaîne, ou tableau de blocs text. */
 function resultText(content: unknown): string {
@@ -304,8 +306,11 @@ function resultText(content: unknown): string {
   return '';
 }
 
-function notifiedTaskId(content: unknown): string | undefined {
-  return typeof content === 'string' ? TASK_NOTIFICATION_PATTERN.exec(content)?.[1] : undefined;
+function taskIdsInNotification(content: unknown): string[] {
+  if (typeof content !== 'string' || !TASK_NOTIFICATION_PATTERN.test(content)) {
+    return [];
+  }
+  return [...content.matchAll(TASK_ID_PATTERN)].map((match) => match[1]);
 }
 
 interface PendingTool {
@@ -361,10 +366,7 @@ function analyzeTail(tail: string): TailAnalysis {
     }
     const since = typeof record.timestamp === 'string' ? Date.parse(record.timestamp) : NaN;
     if (record.type === 'queue-operation') {
-      const id = notifiedTaskId(record.content);
-      if (id) {
-        notifiedTaskIds.push(id);
-      }
+      notifiedTaskIds.push(...taskIdsInNotification(record.content));
       continue;
     }
     const message = isRecord(record.message) ? record.message : undefined;
@@ -404,10 +406,7 @@ function analyzeTail(tail: string): TailAnalysis {
           }
         }
       }
-      const id = notifiedTaskId(content);
-      if (id) {
-        notifiedTaskIds.push(id);
-      }
+      notifiedTaskIds.push(...taskIdsInNotification(content));
       last = { kind: 'user', since };
     }
   }
@@ -1188,17 +1187,25 @@ function readSessionTailMeta(filePath: string, mtimeMs: number): TailMeta {
 
 /** Tête de la sortie d'une commande de fond, où un serveur annonce son adresse. */
 const OUTPUT_READ_BYTES = 4 * 1024;
+/** Queue de cette même sortie, où Claude Code écrit le marqueur de shell tué. */
+const OUTPUT_TAIL_BYTES = 512;
+/** Dernière ligne écrite par Claude Code quand il tue un shell de fond : aucune notification ne suit. */
+const KILLED_MARKER = '[killed]';
 /** Une notification enfilée fait ~600 octets : marge de relecture autour de la frontière de la fenêtre. */
 const NOTIFICATION_OVERLAP_BYTES = 2 * 1024;
 /** Au-delà, on renonce à rattraper les notifications passées hors fenêtre entre deux scans. */
 const NOTIFICATION_CATCHUP_MAX_BYTES = 8 * 1024 * 1024;
-/** Notification de fin telle qu'elle apparaît dans le JSONL brut (\\n = deux caractères). */
-const TASK_NOTIFICATION_RAW_PATTERN = /<task-notification>\\n<task-id>([^<\\]+)<\/task-id>/g;
+/** Suite des ids d'une notification de fin telle qu'elle apparaît dans le JSONL brut (\\n = deux caractères). */
+const TASK_NOTIFICATION_RAW_PATTERN = /<task-notification>((?:\\n<task-id>[^<\\]+<\/task-id>)+)/g;
+/** Chaque id de cette suite. */
+const TASK_ID_RAW_PATTERN = /<task-id>([^<\\]+)<\/task-id>/g;
 
 interface CachedBackground {
   tasks: Map<string, BackgroundTask>;
-  /** Fichier de sortie de chaque tâche et mtime déjà lu (recherche de l'adresse locale). */
+  /** Fichier de sortie de chaque tâche et mtime déjà lu (adresse locale et marqueur de fin). */
   outputs: Map<string, { file: string; mtimeMs: number }>;
+  /** Tâches dont la sortie s'est terminée par le marqueur : leur lancement, encore en fenêtre, ne les ressuscite pas. */
+  killed: Set<string>;
   /** Taille du transcript au scan précédent : les octets suivants passés hors fenêtre sont relus. */
   scannedSize: number;
 }
@@ -1239,7 +1246,7 @@ function bootstrapBackground(transcriptPath: string, size: number): TailAnalysis
 
 function addBackgroundStarts(cached: CachedBackground, starts: BackgroundStart[]): void {
   for (const start of starts) {
-    if (start.taskId === undefined || cached.tasks.has(start.taskId)) {
+    if (start.taskId === undefined || cached.tasks.has(start.taskId) || cached.killed.has(start.taskId)) {
       continue;
     }
     cached.tasks.set(start.taskId, {
@@ -1261,16 +1268,27 @@ function catchUpNotifications(transcriptPath: string, cached: CachedBackground, 
     return;
   }
   const text = readRange(transcriptPath, cached.scannedSize, Math.min(skipped, NOTIFICATION_CATCHUP_MAX_BYTES));
-  for (const match of (text ?? '').matchAll(TASK_NOTIFICATION_RAW_PATTERN)) {
-    cached.tasks.delete(match[1]);
+  for (const notification of (text ?? '').matchAll(TASK_NOTIFICATION_RAW_PATTERN)) {
+    for (const id of notification[1].matchAll(TASK_ID_RAW_PATTERN)) {
+      cached.tasks.delete(id[1]);
+    }
   }
 }
 
-/** Cherche l'adresse locale en tête de la sortie de chaque tâche encore sans adresse, à chaque changement du fichier. */
-function refreshTaskUrls(cached: CachedBackground): void {
-  for (const task of cached.tasks.values()) {
+/** Le shell a été tué : Claude Code l'écrit seul sur la dernière ligne de la sortie, jamais dans le transcript. */
+function endsKilled(tail: string): boolean {
+  const lines = tail.trimEnd().split('\n');
+  return lines[lines.length - 1].trim() === KILLED_MARKER;
+}
+
+/**
+ * Relit la sortie de chaque tâche à chaque changement du fichier : le marqueur de shell tué en queue,
+ * et l'adresse locale en tête tant qu'elle manque.
+ */
+function refreshFromOutputs(cached: CachedBackground): void {
+  for (const task of [...cached.tasks.values()]) {
     const output = cached.outputs.get(task.id);
-    if (task.url !== undefined || !output) {
+    if (!output) {
       continue;
     }
     let mtimeMs: number;
@@ -1283,17 +1301,27 @@ function refreshTaskUrls(cached: CachedBackground): void {
       continue;
     }
     output.mtimeMs = mtimeMs;
-    const head = readChunk(output.file, 'head', OUTPUT_READ_BYTES);
-    const url = head !== undefined ? extractLocalUrl(head) : undefined;
-    if (url) {
-      task.url = url;
+    const tail = readChunk(output.file, 'tail', OUTPUT_TAIL_BYTES);
+    if (tail !== undefined && endsKilled(tail)) {
+      cached.tasks.delete(task.id);
+      cached.outputs.delete(task.id);
+      cached.killed.add(task.id);
+      continue;
+    }
+    if (task.url === undefined) {
+      const head = readChunk(output.file, 'head', OUTPUT_READ_BYTES);
+      const url = head !== undefined ? extractLocalUrl(head) : undefined;
+      if (url) {
+        task.url = url;
+      }
     }
   }
 }
 
 /**
  * Tâches de fond encore en cours : lancements vus dans la fenêtre (mémorisés, car ils en sortent vite),
- * retirées à leur notification de fin — vue dans la fenêtre ou rattrapée dans les octets sautés.
+ * retirées à leur notification de fin — vue dans la fenêtre ou rattrapée dans les octets sautés —
+ * ou au marqueur de shell tué que Claude Code n'écrit que dans la sortie de la commande.
  */
 function updateBackgroundTasks(
   sessionId: string,
@@ -1303,7 +1331,7 @@ function updateBackgroundTasks(
 ): BackgroundTask[] | undefined {
   let cached = backgroundCache.get(sessionId);
   if (!cached) {
-    cached = { tasks: new Map(), outputs: new Map(), scannedSize: size };
+    cached = { tasks: new Map(), outputs: new Map(), killed: new Set(), scannedSize: size };
     backgroundCache.set(sessionId, cached);
     const past = bootstrapBackground(transcriptPath, size);
     if (past) {
@@ -1319,7 +1347,7 @@ function updateBackgroundTasks(
   for (const id of meta.notifiedTaskIds ?? []) {
     cached.tasks.delete(id);
   }
-  refreshTaskUrls(cached);
+  refreshFromOutputs(cached);
   if (cached.tasks.size === 0) {
     return undefined;
   }

@@ -548,3 +548,60 @@ body {
   padding-right: 0;
   font-variant-numeric: tabular-nums;
 }
+
+/* Encart de notation, ancré en haut de la vue (hors de #root, que le rendu réécrit à chaque scan). */
+#rate {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px 8px;
+  padding: 3px 0 4px;
+  background: var(--vscode-sideBar-background);
+  border-bottom: 1px solid var(--vscode-widget-border);
+  font-size: 0.92em;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Le message tourne au hasard (main.ts) : fondu doux à chaque changement. */
+#rate .msg {
+  transition: opacity 0.3s ease;
+}
+
+/* Étoiles écrites de 5 à 1 puis remises à l'endroit : « :hover ~ » atteint alors celles affichées à gauche. */
+#rate .stars {
+  display: flex;
+  flex-direction: row-reverse;
+}
+
+#rate .star {
+  padding: 0 1px;
+  font-size: 1.15em;
+  line-height: 1;
+  text-decoration: none;
+  color: var(--vscode-tree-inactiveIndentGuidesStroke);
+}
+
+#rate .star:hover,
+#rate .star:hover ~ .star {
+  color: #f5b301;
+}
+
+/* Session au-delà de la rétention, gardée pour ses seuls serveurs encore vivants : un résidu discret. */
+.card.collapsed {
+  background: transparent;
+  border-style: dashed;
+  opacity: 0.8;
+}
+
+.card.collapsed h3 {
+  font-weight: 400;
+  color: var(--vscode-descriptionForeground);
+}
+
+.card.collapsed .dot {
+  background: var(--vscode-tree-inactiveIndentGuidesStroke, rgba(128, 128, 128, 0.5));
+}

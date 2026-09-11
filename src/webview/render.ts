@@ -1,5 +1,5 @@
 import type { AgentNode, FinishedAgentSettings, ProjectNode, SessionNode, WorkflowNode } from '../types';
-import { filterVisibleAgents, filterVisibleSessions } from '../visibility';
+import { filterVisibleAgents, visibleSessionViews, type SessionView } from '../visibility';
 import { abbreviateModel, contextLimitFor, formatDuration, formatTokens, modelFamily } from '../format';
 import { STRINGS, type Locale } from '../i18n';
 import {
@@ -37,16 +37,20 @@ export function escapeHtml(text: string): string {
 export function renderApp(projects: ProjectNode[], options: RenderOptions): string {
   const retention = options.inactiveSessionRetentionMinutes ?? DEFAULT_SESSION_RETENTION_MINUTES;
   const visible = projects
-    .map((project) => ({ project, sessions: filterVisibleSessions(project.sessions, retention, options.now) }))
-    .filter(({ sessions }) => sessions.length > 0);
+    .map((project) => ({ project, views: visibleSessionViews(project.sessions, retention, options.now) }))
+    .filter(({ views }) => views.length > 0);
   if (visible.length === 0) {
     return `<p class="empty">${escapeHtml(STRINGS[options.locale ?? 'fr'].empty)}</p>`;
   }
-  return visible.map(({ project, sessions }) => renderProject(project, sessions, options)).join('');
+  return visible.map(({ project, views }) => renderProject(project, views, options)).join('');
 }
 
-function renderProject(project: ProjectNode, sessions: SessionNode[], options: RenderOptions): string {
-  const cards = sessions.map((session) => renderSessionCard(session, options)).join('');
+function renderProject(project: ProjectNode, views: SessionView[], options: RenderOptions): string {
+  const cards = views
+    .map(({ session, collapsed }) =>
+      collapsed ? renderCollapsedCard(session, options) : renderSessionCard(session, options),
+    )
+    .join('');
   return `<section class="project" data-key="proj:${escapeHtml(project.cwd)}"><h2 title="${escapeHtml(project.cwd)}">${escapeHtml(project.name)}</h2><div class="sessions">${cards}</div></section>`;
 }
 
@@ -93,16 +97,37 @@ function sessionVerb(session: SessionNode, locale: Locale): string | undefined {
   return session.active && session.lastTool ? activityVerb(session.lastTool, locale) : undefined;
 }
 
-/** Une ligne par commande de fond encore en cours : commande, durée, adresse locale cliquable. */
-function renderBackgroundTasks(session: SessionNode, options: RenderOptions): string {
-  const tasks = session.backgroundTasks;
-  if (!tasks || tasks.length === 0) {
+/**
+ * Session au-delà de la rétention qui sert encore une adresse locale : on ne garde que son nom et
+ * ses serveurs vivants. Ni agents, ni todos, ni jauge — le lien est la seule raison de la garder.
+ */
+function renderCollapsedCard(session: SessionNode, options: RenderOptions): string {
+  return [
+    `<article class="card collapsed" data-key="sess:${escapeHtml(session.sessionId)}">`,
+    `<header><span class="dot"></span><h3 title="${escapeHtml(session.name)}">${escapeHtml(session.name)}</h3></header>`,
+    renderBackgroundTasks(session, options, true),
+    '</article>',
+  ].join('');
+}
+
+/**
+ * Une ligne par commande de fond encore en cours : commande, durée, adresse locale cliquable.
+ * Le lien tombe dès que le port a été mesuré mort ; tant qu'il n'a pas été sondé (`undefined`), il reste.
+ * `onlyLive` ne garde que les commandes servant encore une adresse : c'est le contenu de la card réduite.
+ */
+function renderBackgroundTasks(session: SessionNode, options: RenderOptions, onlyLive = false): string {
+  const all = session.backgroundTasks;
+  if (!all || all.length === 0) {
+    return '';
+  }
+  const tasks = onlyLive ? all.filter((task) => task.url !== undefined && task.urlAlive === true) : all;
+  if (tasks.length === 0) {
     return '';
   }
   const locale = options.locale ?? 'fr';
   return tasks
     .map((task) => {
-      const link = task.url
+      const link = task.url !== undefined && task.urlAlive !== false
         ? ` · <a href="${escapeHtml(task.url)}" target="_blank" rel="noopener">${escapeHtml(hostOf(task.url))}</a>`
         : '';
       return [

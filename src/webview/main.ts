@@ -1,4 +1,6 @@
 import type { StateMessage } from '../types';
+import { pickPhrase } from '../banner';
+import type { Locale } from '../i18n';
 import { morphChildren } from './morph';
 import { renderApp } from './render';
 
@@ -67,3 +69,27 @@ function render(): void {
 
 // Anime jauges et durées entre deux scans (250 ms = fluide à l'œil, coût négligeable).
 setInterval(render, 250);
+
+// Fait tourner le message de l'encart de notation (hors #root, épargné par le morph). La locale est
+// posée par le serveur dans data-locale ; la salutation suit l'heure locale de qui regarde.
+(function rotateRateMessage(): void {
+  const msg = document.querySelector<HTMLElement>('#rate .msg');
+  const locale = (document.getElementById('rate')?.getAttribute('data-locale') ?? 'fr') as Locale;
+  if (!msg) {
+    return;
+  }
+  let current = msg.textContent ?? '';
+  setInterval(() => {
+    let next = current;
+    // Évite de retomber sur la même phrase deux fois de suite.
+    for (let tries = 0; tries < 5 && next === current; tries++) {
+      next = pickPhrase(locale, new Date().getHours());
+    }
+    current = next;
+    msg.style.opacity = '0';
+    setTimeout(() => {
+      msg.textContent = next;
+      msg.style.opacity = '1';
+    }, 300);
+  }, 45000);
+})();

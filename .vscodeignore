@@ -10,3 +10,6 @@ dist/dev-server.js.map
 vitest.config.ts
 tsconfig.json
 *.vsix
+.mcp.json
+CLAUDE.md
+persona.md

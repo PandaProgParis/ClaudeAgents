@@ -42,6 +42,8 @@ export interface BackgroundTask {
   startedAt: number;
   /** Première adresse locale (http://localhost:…) écrite dans la sortie de la commande ; rien n'est deviné. */
   url?: string;
+  /** Vivacité mesurée du port (portProbe) : `undefined` tant qu'il n'a pas été sondé. */
+  urlAlive?: boolean;
 }
 
 /** Phase déclarée par le script d'un workflow (meta.phases) : le plan, pas la progression. */

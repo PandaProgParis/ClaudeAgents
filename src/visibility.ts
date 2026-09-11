@@ -41,6 +41,39 @@ export function filterVisibleSessions(
   );
 }
 
+/** Une session affichée, dépliée ou réduite à ses seules adresses locales encore servies. */
+export interface SessionView {
+  session: SessionNode;
+  collapsed: boolean;
+}
+
+/** Vrai si au moins une commande de fond sert une adresse dont le port a répondu. */
+function hasLiveUrl(session: SessionNode): boolean {
+  return (session.backgroundTasks ?? []).some((task) => task.url !== undefined && task.urlAlive === true);
+}
+
+/**
+ * Sessions à afficher. Au-delà de la rétention, une session n'est plus supprimée si elle sert encore
+ * une adresse locale : elle est réduite à ces adresses. La preuve doit être positive (`urlAlive === true`),
+ * sinon une session éteinte depuis des heures ressusciterait le temps que son port soit sondé.
+ */
+export function visibleSessionViews(
+  sessions: SessionNode[],
+  retentionMinutes: number,
+  now: number,
+): SessionView[] {
+  const visible = new Set(filterVisibleSessions(sessions, retentionMinutes, now));
+  const views: SessionView[] = [];
+  for (const session of sessions) {
+    if (visible.has(session)) {
+      views.push({ session, collapsed: false });
+    } else if (hasLiveUrl(session)) {
+      views.push({ session, collapsed: true });
+    }
+  }
+  return views;
+}
+
 export function filterVisibleAgents(
   agents: AgentNode[],
   settings: FinishedAgentSettings,

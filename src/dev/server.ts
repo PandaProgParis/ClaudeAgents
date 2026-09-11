@@ -1,7 +1,9 @@
 import * as fs from 'fs';
 import * as http from 'http';
 import * as path from 'path';
-import { buildState } from '../state';
+import { rateBannerHtml } from '../banner';
+import { buildState, localUrls } from '../state';
+import { probeUrls } from '../portProbe';
 import type { Locale } from '../i18n';
 import type { FinishedAgentSettings } from '../types';
 
@@ -123,7 +125,7 @@ function choices(params: URLSearchParams, key: string, values: string[], current
     .join(' ');
 }
 
-/** Page d'aperçu : mêmes fichiers que la webview, barre de réglages en haut à droite, rechargement auto. */
+/** Page d'aperçu : mêmes fichiers que la webview, barre de réglages en haut, rechargement auto. */
 export function devPageHtml(params: URLSearchParams): string {
   const theme: Theme = params.get('theme') === 'light' ? 'light' : 'dark';
   const query = parseStateQuery(params);
@@ -138,34 +140,50 @@ export function devPageHtml(params: URLSearchParams): string {
 <head>
 <meta charset="UTF-8">
 <title>Claude Agents — aperçu</title>
+<!-- cards.css d'abord : l'habillage de l'aperçu (body, #frame, #grip, #devbar) doit pouvoir le surcharger. -->
+<link rel="stylesheet" href="/media/cards.css">
 <style>
 :root {
 ${cssVariables(theme)}
 }
 html, body { margin: 0; }
+/* cards.css habille « body » car dans VS Code le body EST la webview ; ici c'est #frame qui la joue,
+   donc on annule ce que cards.css pose sur le body et on le reporte sur la colonne. */
 body {
-  background: var(--vscode-sideBar-background); min-height: 100vh; box-sizing: border-box;
-  display: flex; align-items: flex-start;
+  background: var(--vscode-sideBar-background); height: 100vh; box-sizing: border-box;
+  padding: 0; display: flex; flex-direction: column; align-items: flex-start;
 }
-/* Une colonne de la largeur d'une barre latérale, redimensionnable par sa poignée en bas à droite. */
+#stage { flex: 1; align-self: stretch; min-height: 0; display: flex; align-items: stretch; }
+/* Une colonne de la largeur d'une barre latérale, redimensionnée en glissant #grip. */
 #frame {
-  flex: none; width: 360px; min-width: 220px; max-width: calc(100vw - 200px); min-height: 100vh; box-sizing: border-box;
-  resize: horizontal; overflow: auto; border-right: 1px solid var(--vscode-widget-border);
+  flex: none; width: 360px; min-width: 220px; min-height: 0; box-sizing: border-box;
+  padding: 2px 8px 2px 4px; overflow: auto;
 }
+/* Le séparateur : saisissable sur toute la hauteur, pas seulement par un coin. */
+#grip {
+  flex: none; width: 5px; cursor: col-resize; background: var(--vscode-widget-border);
+}
+#grip:hover, #grip.dragging { background: var(--vscode-progressBar-background); }
+body.dragging { user-select: none; }
+/* Bandeau de réglages sur une seule ligne au-dessus de la colonne (il retombe à la ligne si la fenêtre est étroite). */
 #devbar {
-  position: sticky; top: 8px; margin: 8px 16px; display: flex; flex-direction: column; gap: 4px;
+  flex: none; align-self: stretch; box-sizing: border-box;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; padding: 6px 16px;
+  border-bottom: 1px solid var(--vscode-widget-border);
   font: 12px var(--vscode-font-family); color: var(--vscode-descriptionForeground); white-space: nowrap;
 }
 #devbar a { color: inherit; text-decoration: none; opacity: 0.6; }
 #devbar a.on { opacity: 1; font-weight: 600; text-decoration: underline; }
 </style>
-<link rel="stylesheet" href="/media/cards.css">
 </head>
 <body>
-<div id="frame"><div id="root"><p class="empty">…</p></div></div>
 <nav id="devbar">
 ${bar}
 </nav>
+<div id="stage">
+  <div id="frame">${rateBannerHtml(query.locale)}<div id="root"><p class="empty">…</p></div></div>
+  <div id="grip" title="Glisser pour régler la largeur de la barre latérale"></div>
+</div>
 <script src="/dist/webview.js"></script>
 <script>
 (function () {
@@ -188,6 +206,40 @@ ${bar}
   check();
   setInterval(pull, 2000);
   setInterval(check, 1000);
+})();
+(function () {
+  // Largeur de la colonne : glisser le séparateur sur n'importe quel point de sa hauteur.
+  // Le pointer capture garde le drag vivant même quand le curseur sort du séparateur ou de la fenêtre.
+  var frame = document.getElementById('frame');
+  var grip = document.getElementById('grip');
+  var MIN = 220;
+  function apply(width) {
+    frame.style.width = Math.max(MIN, Math.min(width, window.innerWidth - grip.offsetWidth)) + 'px';
+  }
+  // La largeur survit au rechargement auto, qui se déclenche justement quand on retouche cards.css.
+  try {
+    var saved = Number(localStorage.getItem('devFrameWidth'));
+    if (Number.isFinite(saved) && saved > 0) { apply(saved); }
+  } catch (error) {}
+  grip.addEventListener('pointerdown', function (event) {
+    event.preventDefault();
+    grip.setPointerCapture(event.pointerId);
+    grip.classList.add('dragging');
+    document.body.classList.add('dragging');
+  });
+  grip.addEventListener('pointermove', function (event) {
+    if (!grip.hasPointerCapture(event.pointerId)) { return; }
+    apply(event.clientX - frame.getBoundingClientRect().left);
+  });
+  function stop(event) {
+    if (!grip.hasPointerCapture(event.pointerId)) { return; }
+    grip.releasePointerCapture(event.pointerId);
+    grip.classList.remove('dragging');
+    document.body.classList.remove('dragging');
+    try { localStorage.setItem('devFrameWidth', String(frame.getBoundingClientRect().width)); } catch (error) {}
+  }
+  grip.addEventListener('pointerup', stop);
+  grip.addEventListener('pointercancel', stop);
 })();
 </script>
 </body>
@@ -236,6 +288,7 @@ export function createDevServer(options: DevServerOptions): http.Server {
           log,
           isPidAlive: options.isPidAlive,
         });
+        void probeUrls(localUrls(state.projects)).catch(() => undefined);
         send(res, 200, 'application/json; charset=utf-8', JSON.stringify(state));
         return;
       }

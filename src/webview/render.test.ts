@@ -638,3 +638,77 @@ describe('renderApp — infobulle des agents de workflow', () => {
     );
   });
 });
+
+describe('adresses locales des commandes de fond', () => {
+  const task = (overrides: Record<string, unknown> = {}) => ({
+    id: 't1',
+    command: 'npm run dev',
+    description: 'Relance le serveur de dev',
+    startedAt: NOW - 60_000,
+    url: 'http://localhost:6602/',
+    ...overrides,
+  });
+
+  it('affiche le lien tant que le port n’a pas été démenti', () => {
+    const html = renderApp([project([session({ backgroundTasks: [task()] })])], { now: NOW, settings: SETTINGS });
+    expect(html).toContain('localhost:6602');
+  });
+
+  it('affiche le lien d’un port qui répond', () => {
+    const html = renderApp([project([session({ backgroundTasks: [task({ urlAlive: true })] })])], { now: NOW, settings: SETTINGS });
+    expect(html).toContain('localhost:6602');
+  });
+
+  it('retire le lien d’un port mort mais garde la ligne de commande', () => {
+    const html = renderApp([project([session({ backgroundTasks: [task({ urlAlive: false })] })])], { now: NOW, settings: SETTINGS });
+    expect(html).not.toContain('localhost:6602');
+    expect(html).toContain('Relance le serveur de dev');
+  });
+
+  it('ne garde que le port vivant quand plusieurs ont été écrits', () => {
+    const tasks = [
+      task({ id: 'a', url: 'http://localhost:6603/', urlAlive: false }),
+      task({ id: 'b', url: 'http://localhost:6610/', urlAlive: false }),
+      task({ id: 'c', url: 'http://localhost:6602/', urlAlive: true }),
+    ];
+    const html = renderApp([project([session({ backgroundTasks: tasks })])], { now: NOW, settings: SETTINGS });
+    expect(html).toContain('localhost:6602');
+    expect(html).not.toContain('localhost:6603');
+    expect(html).not.toContain('localhost:6610');
+  });
+});
+
+describe('card réduite à ses adresses locales', () => {
+  const expired = (overrides: Partial<SessionNode> = {}) =>
+    session({ active: false, lastActivity: NOW - 3_600_000, startedAt: NOW - 7_200_000, ...overrides });
+  const live = { id: 't1', command: 'npm run dev', description: 'Relance le serveur', startedAt: NOW - 60_000, url: 'http://localhost:6602/', urlAlive: true };
+
+  it('réduit une session expirée qui sert encore une adresse', () => {
+    const html = renderApp([project([expired({ backgroundTasks: [live] })])], {
+      now: NOW,
+      settings: SETTINGS,
+      inactiveSessionRetentionMinutes: 10,
+    });
+    expect(html).toContain('collapsed');
+    expect(html).toContain('localhost:6602');
+  });
+
+  it('n’affiche ni agents ni todos dans une card réduite', () => {
+    const html = renderApp([project([expired({ backgroundTasks: [live], agents: [agent({ description: 'Analyse des bugs' })] })])], {
+      now: NOW,
+      settings: SETTINGS,
+      inactiveSessionRetentionMinutes: 10,
+    });
+    expect(html).not.toContain('Analyse des bugs');
+  });
+
+  it('fait disparaître le projet quand le dernier port meurt', () => {
+    const dead = { ...live, urlAlive: false };
+    const html = renderApp([project([expired({ backgroundTasks: [dead] })])], {
+      now: NOW,
+      settings: SETTINGS,
+      inactiveSessionRetentionMinutes: 10,
+    });
+    expect(html).toContain('Aucune session Claude en cours.');
+  });
+});

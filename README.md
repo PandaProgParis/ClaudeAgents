@@ -16,6 +16,7 @@ machine, across all projects. **100% local, read-only access to `~/.claude`.**
 - **Workflows as a strip of squares** — each workflow appears by name with one square per agent (grey done, blue running, red failed) and a “24/33 ✓ · 3 running” counter; only the running or failed agents are listed underneath, numbered #1, #2… to match their square. Agents are labelled by what is specific to each of them: the first line of their prompt after the preamble shared by the whole run, then the label the script itself gave them (`refute:selection:correction`) once the run is over; hover for the rest of the prompt. Hover a square for its label, model and duration. Click the workflow line to unfold its description and the phases declared by its script, plus a table of all its agents (label, model, context, run time).
 - **Live activity** — the session shows whether the model is thinking (💭) or which tool is running (✎ editing, ⏵ running, 🔍 searching, 📖 reading, 🤖 delegating…), and goes quiet the moment the turn ends, unless sub-agents it launched are still running (🤖 delegating). Sub-agents show their current tool too.
 - **Background commands** — a dev server or a long build started in the background is listed under its session (the agent's own description of it), with its duration and its local URL as a clickable link, until it finishes. The URL is the one the command itself printed; nothing is guessed.
+- **Only the URLs that still answer** — each printed port is probed (a TCP connect on `127.0.0.1`, nothing leaves your machine), so a dev server relaunched three times no longer shows three addresses when only one serves: the dead links simply go. And a session that has gone quiet past the retention delay while its server is still up no longer disappears with its link — the card collapses to just its live URLs.
 - **Progress checklist** — the session's current task list (✅ done, 🔵 in progress, ⬜ to do) with a `done/total` counter, so you see exactly where a multi-step feature stands. A fully completed list disappears as soon as you move on to your next prompt.
 - **Context & model** — colored model badge (fable, mythos, opus, sonnet, haiku; any other model id is shown verbatim) and a context bar “386k / 1M” with a ⚠ alert above 85%.
 - **Git branch** and **smart title** (AI-generated session title when you haven't renamed it manually; until then, the project name without Claude Code's random suffix).
@@ -25,7 +26,13 @@ machine, across all projects. **100% local, read-only access to `~/.claude`.**
 
 ![Per-session task checklist](https://raw.githubusercontent.com/PandaProgParis/ClaudeAgents/main/assets/screenshot2.png)
 
-## What's new in 0.8.2
+## What's new in 0.8.4
+
+- **Dead `localhost` links disappear.** Relaunching a dev server used to leave three addresses under the session when only one still served a page. Each printed port is now probed (a TCP connect on the loopback, nothing leaves your machine) and links that no longer answer are dropped. A port that has not been probed yet keeps its link: nothing is ever hidden on a guess.
+- **A session that is only a server no longer vanishes.** Past the inactivity delay, a session still serving a local URL collapses to a compact card with just that link, instead of disappearing and taking the address with it. It goes for good once the port stops answering.
+- **Killed background commands** no longer linger under their session. Claude Code writes nothing in the transcript when it stops a shell, so the extension now reads the marker left at the end of the command's own output.
+
+## Highlights
 
 - **Meaningful agent labels** — sub-agents show the description their parent gave them instead of the first line of their prompt. Workflow agents show what is specific to each of them: the first line of their prompt after the preamble shared by the whole run, then the script's own label (`impl:A-lib-pure`) once the run is over. Hover for the prompt excerpt.
 - **Session names** without Claude Code's random suffix (`l2lt-master-4e` → `l2lt-master`) until the session gets a title.
@@ -51,7 +58,13 @@ the extension reads its `~/.claude` folder.
 ## Privacy
 
 100% local. The extension reads `~/.claude` **read-only**, never writes anything,
-never touches `.credentials.json`, and **sends no data** over the network.
+never touches `.credentials.json`, and **sends no data anywhere**.
+
+Its only network activity stays on your own loopback interface: to tell a live
+dev server from a dead one, it opens a TCP connection to `127.0.0.1:<port>` for
+the ports your background commands printed themselves, then closes it
+immediately. Nothing is sent, nothing is read from those ports, and no request
+ever leaves your machine.
 
 ## Settings
 
@@ -83,7 +96,8 @@ npm test           # unit tests (vitest)
 npm run typecheck  # tsc --noEmit
 npm run build      # esbuild → dist/extension.js + dist/webview.js
 npm run dev        # live preview of the cards at http://localhost:5173 — real CSS and
-                   # webview script over your real ~/.claude, auto-reload, no VS Code reload
+                   # webview script over your real ~/.claude, auto-reload, no VS Code reload.
+                   # Settings bar on top, drag the separator to resize the sidebar column.
 npm run package    # → claude-agents-<version>.vsix
 # F5 in VS Code → Extension Development Host
 ```

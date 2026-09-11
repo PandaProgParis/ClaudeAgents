@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { rateBannerHtml } from './banner';
 import { STRINGS, resolveLocale } from './i18n';
 
 export class CardsViewProvider implements vscode.WebviewViewProvider {
@@ -63,6 +64,7 @@ export class CardsViewProvider implements vscode.WebviewViewProvider {
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview.js'));
     const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'cards.css'));
     const nonce = getNonce();
+    const locale = resolveLocale(vscode.env.language);
     return [
       '<!DOCTYPE html>',
       '<html lang="fr">',
@@ -72,7 +74,8 @@ export class CardsViewProvider implements vscode.WebviewViewProvider {
       `<link rel="stylesheet" href="${styleUri}">`,
       '</head>',
       '<body>',
-      `<div id="root"><p class="empty">${STRINGS[resolveLocale(vscode.env.language)].empty}</p></div>`,
+      rateBannerHtml(locale),
+      `<div id="root"><p class="empty">${STRINGS[locale].empty}</p></div>`,
       `<script nonce="${nonce}" src="${scriptUri}"></script>`,
       '</body>',
       '</html>',
