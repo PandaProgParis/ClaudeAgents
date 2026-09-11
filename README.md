@@ -12,21 +12,24 @@ machine, across all projects. **100% local, read-only access to `~/.claude`.**
 ## Features
 
 - **All your sessions at a glance** — one card per Claude Code session, grouped by project, refreshed every 2 s.
-- **Sub-agent tree** — sub-agents shown under their session, with parent → child → grandchild indentation reconstructed from filiation.
-- **Workflows as a strip of squares** — each workflow appears by name with one square per agent (grey done, blue running, red failed) and a “24/33 ✓ · 3 running” counter; only the running or failed agents are listed underneath, numbered #1, #2… to match their square. Hover a square for its description, model and duration. Click the workflow line to unfold its description and the phases declared by its script, plus a table of all its agents (label, model, context, run time).
+- **Sub-agent tree** — sub-agents shown under their session, with parent → child → grandchild indentation reconstructed from filiation. Each one is labelled with the description its parent gave it (“Fix the table column widths”); hover for the start of its prompt.
+- **Workflows as a strip of squares** — each workflow appears by name with one square per agent (grey done, blue running, red failed) and a “24/33 ✓ · 3 running” counter; only the running or failed agents are listed underneath, numbered #1, #2… to match their square. Agents are labelled by what is specific to each of them: the first line of their prompt after the preamble shared by the whole run, then the label the script itself gave them (`refute:selection:correction`) once the run is over; hover for the rest of the prompt. Hover a square for its label, model and duration. Click the workflow line to unfold its description and the phases declared by its script, plus a table of all its agents (label, model, context, run time).
 - **Live activity** — the session shows whether the model is thinking (💭) or which tool is running (✎ editing, ⏵ running, 🔍 searching, 📖 reading, 🤖 delegating…), and goes quiet the moment the turn ends, unless sub-agents it launched are still running (🤖 delegating). Sub-agents show their current tool too.
 - **Background commands** — a dev server or a long build started in the background is listed under its session (the agent's own description of it), with its duration and its local URL as a clickable link, until it finishes. The URL is the one the command itself printed; nothing is guessed.
 - **Progress checklist** — the session's current task list (✅ done, 🔵 in progress, ⬜ to do) with a `done/total` counter, so you see exactly where a multi-step feature stands. A fully completed list disappears as soon as you move on to your next prompt.
 - **Context & model** — colored model badge (fable, mythos, opus, sonnet, haiku; any other model id is shown verbatim) and a context bar “386k / 1M” with a ⚠ alert above 85%.
-- **Git branch** and **smart title** (AI-generated session title when you haven't renamed it manually).
+- **Git branch** and **smart title** (AI-generated session title when you haven't renamed it manually; until then, the project name without Claude Code's random suffix).
 - **Waiting for you** — a session blocked on a question turns orange ⏳ with the question text, and is never hidden. Once the panel has been opened, the activity bar icon shows a badge with the number of sessions waiting for your answer, kept up to date even while the view is hidden.
 - **Current-project filter** — a button toggles between all projects and just the open workspace.
 - **Bilingual** — the UI follows your VS Code language (English / French).
 
 ![Per-session task checklist](https://raw.githubusercontent.com/PandaProgParis/ClaudeAgents/main/assets/screenshot2.png)
 
-## What's new in 0.8.1
+## What's new in 0.8.2
 
+- **Meaningful agent labels** — sub-agents show the description their parent gave them instead of the first line of their prompt. Workflow agents show what is specific to each of them: the first line of their prompt after the preamble shared by the whole run, then the script's own label (`impl:A-lib-pure`) once the run is over. Hover for the prompt excerpt.
+- **Session names** without Claude Code's random suffix (`l2lt-master-4e` → `l2lt-master`) until the session gets a title.
+- **Resumed sessions** no longer look busy thinking about a prompt sent before the resume.
 - **Main agent status** read from the transcript itself: 💭 thinking, running tool, 🤖 delegating to background sub-agents, or turn over. No more “paused” card during a long think.
 - **Background commands** (a dev server, a long build) listed under their session with their duration and the local URL they printed, until they finish.
 - **Workflows** under their real name, as a strip of one square per agent; failed agents flagged in red (from the run's `journal.jsonl`), agents numbered to match their square. Click a workflow to unfold its description, the phases its script declares and a table of all its agents.

@@ -618,3 +618,23 @@ describe('renderApp', () => {
     expect(html).toContain('data-key="ag:agent-run"');
   });
 });
+
+describe('renderApp — infobulle des agents de workflow', () => {
+  it('met en infobulle le détail du prompt propre à l’agent, sur la ligne comme dans le tableau', () => {
+    const detailed = agent({
+      id: 'agent-1',
+      description: 'Tu es RÉFUTATEUR — lentille CORRECTION.',
+      detail: 'Tu es RÉFUTATEUR — lentille CORRECTION.\nCONSTAT : "anchorRef"',
+    });
+    const workflow = { id: 'wf_t', agents: [detailed], totalCount: 1, finishedCount: 0 };
+    const projects = [project([session({ workflows: [workflow] })])];
+    const collapsed = renderApp(projects, { now: NOW, settings: SETTINGS });
+    expect(collapsed).toContain(
+      '<span class="agent-label" title="Tu es RÉFUTATEUR — lentille CORRECTION.\nCONSTAT : &quot;anchorRef&quot;">Tu es RÉFUTATEUR — lentille CORRECTION.</span>',
+    );
+    const open = renderApp(projects, { now: NOW, settings: SETTINGS, expandedWorkflows: new Set(['wf_t']) });
+    expect(open).toContain(
+      '<td class="wf-name" title="Tu es RÉFUTATEUR — lentille CORRECTION.\nCONSTAT : &quot;anchorRef&quot;">Tu es RÉFUTATEUR — lentille CORRECTION.</td>',
+    );
+  });
+});

@@ -27,19 +27,27 @@ const webviewCtx = await esbuild.context({
 });
 
 let server;
-const stopServer = () => {
-  server?.kill();
-  server = undefined;
-};
-const restartServer = () => {
-  stopServer();
+// L'arrêt est asynchrone et le port reste tenu un instant : on attend la sortie du processus avant d'en relancer un,
+// sinon le nouveau serveur meurt sur EADDRINUSE et l'aperçu ne répond plus jusqu'au rebuild suivant.
+const stopServer = () =>
+  new Promise((resolve) => {
+    const running = server;
+    server = undefined;
+    if (!running || running.exitCode !== null) {
+      resolve();
+      return;
+    }
+    running.once('exit', () => resolve());
+    running.kill();
+  });
+const restartServer = async () => {
+  await stopServer();
   server = spawn(process.execPath, ['dist/dev-server.js'], { stdio: 'inherit', env: process.env });
 };
-process.on('exit', stopServer);
+process.on('exit', () => server?.kill());
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {
-    stopServer();
-    process.exit(0);
+    void stopServer().then(() => process.exit(0));
   });
 }
 
@@ -56,9 +64,9 @@ const devCtx = dev
         {
           name: 'restart-dev-server',
           setup(build) {
-            build.onEnd((result) => {
+            build.onEnd(async (result) => {
               if (result.errors.length === 0) {
-                restartServer();
+                await restartServer();
               }
             });
           },

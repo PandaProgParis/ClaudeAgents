@@ -6,6 +6,8 @@ export interface SessionRegistryEntry {
   cwd: string;
   startedAt: number;
   name?: string;
+  /** « derived » quand Claude Code a tiré le nom du dossier (« l2lt-master-4e »), autre valeur si l'utilisateur l'a choisi. */
+  nameSource?: string;
   kind?: string;
   entrypoint?: string;
   version?: string;
@@ -72,6 +74,11 @@ export interface AgentNode {
   lastActivity: number;
   createdAt: number;
   description?: string;
+  /**
+   * Extrait du prompt pour l'infobulle : la part propre à l'agent après le préambule commun de son run (workflow),
+   * ou le début du prompt quand le libellé vient de la description du meta.json (sous-agent direct).
+   */
+  detail?: string;
   model?: string;
   contextTokens?: number;
   /** Type déclaré dans agent-<id>.meta.json (ex. « superpowers:code-reviewer »). */

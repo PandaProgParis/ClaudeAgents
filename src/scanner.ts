@@ -173,6 +173,17 @@ function readRegistry(sessionsDir: string, log: Log): SessionRegistryEntry[] {
   return entries;
 }
 
+/** Suffixe aléatoire (deux caractères hexadécimaux) que Claude Code ajoute au nom dérivé du dossier. */
+const DERIVED_NAME_SUFFIX = /-[0-9a-f]{2}$/;
+
+/** Nom affiché à défaut de titre : le nom dérivé du dossier sans son suffixe (« l2lt-master-4e » → « l2lt-master »), tout autre nom tel quel. */
+function registryName(entry: SessionRegistryEntry): string {
+  if (entry.name === undefined) {
+    return entry.sessionId.slice(0, 8);
+  }
+  return entry.nameSource === 'derived' ? entry.name.replace(DERIVED_NAME_SUFFIX, '') : entry.name;
+}
+
 export function encodeProjectDirName(cwd: string): string {
   return cwd.replace(/[^a-zA-Z0-9]/g, '-');
 }
@@ -638,7 +649,21 @@ export function compareAgents(a: AgentNode, b: AgentNode): number {
   return a.createdAt - b.createdAt || a.id.localeCompare(b.id);
 }
 
-export function extractDescription(filePath: string): string | undefined {
+function truncate(text: string): string {
+  return text.length > DESCRIPTION_MAX_LENGTH ? text.slice(0, DESCRIPTION_MAX_LENGTH - 1) + '…' : text;
+}
+
+/** Première ligne non vide d'un texte, bornée pour l'affichage. */
+function firstLine(text: string | undefined): string | undefined {
+  const line = text
+    ?.split('\n')
+    .map((part) => part.trim())
+    .find((part) => part.length > 0);
+  return line === undefined ? undefined : truncate(line);
+}
+
+/** Texte du premier message user portant du texte (le prompt de l'agent), dans la limite de la lecture bornée en tête. */
+export function extractPrompt(filePath: string): string | undefined {
   const head = readChunk(filePath, 'head', DESCRIPTION_READ_BYTES);
   if (head === undefined) {
     return undefined;
@@ -665,22 +690,25 @@ export function extractDescription(filePath: string): string | undefined {
       );
       text = block?.text;
     }
-    const firstLine = text
-      ?.split('\n')
-      .map((line) => line.trim())
-      .find((line) => line.length > 0);
-    if (firstLine) {
-      return firstLine.length > DESCRIPTION_MAX_LENGTH
-        ? firstLine.slice(0, DESCRIPTION_MAX_LENGTH - 1) + '…'
-        : firstLine;
+    if (text !== undefined && text.trim().length > 0) {
+      return text;
     }
   }
   return undefined;
 }
 
+export function extractDescription(filePath: string): string | undefined {
+  return firstLine(extractPrompt(filePath));
+}
+
 interface TranscriptMeta {
   mtimeMs: number;
+  /** Prompt de l'agent (premier message user), borné par la lecture en tête. */
+  prompt: string | undefined;
+  /** Description donnée à l'outil Agent, lue dans le meta.json (absente pour un agent de workflow). */
+  metaDescription: string | undefined;
   description: string | undefined;
+  detail: string | undefined;
   model: string | undefined;
   contextTokens: number | undefined;
   agentType: string | undefined;
@@ -689,16 +717,28 @@ interface TranscriptMeta {
   toolUseIds: string[];
 }
 
+interface AgentMetaFile {
+  agentType?: string;
+  toolUseId?: string;
+  /** Description passée à l'outil Agent par le parent (« Corrige les largeurs du tableau »). */
+  description?: string;
+}
+
 /** Métadonnées du fichier frère agent-<id>.meta.json (immuable). */
-function readAgentMetaFile(transcriptPath: string): { agentType?: string; toolUseId?: string } {
+function readAgentMetaFile(transcriptPath: string): AgentMetaFile {
   try {
     const parsed: unknown = JSON.parse(
       fs.readFileSync(transcriptPath.replace(/\.jsonl$/, '.meta.json'), 'utf8'),
     );
-    const { agentType, toolUseId } = parsed as { agentType?: unknown; toolUseId?: unknown };
+    const { agentType, toolUseId, description } = parsed as {
+      agentType?: unknown;
+      toolUseId?: unknown;
+      description?: unknown;
+    };
     return {
       agentType: typeof agentType === 'string' ? agentType : undefined,
       toolUseId: typeof toolUseId === 'string' ? toolUseId : undefined,
+      description: typeof description === 'string' && description.trim().length > 0 ? description.trim() : undefined,
     };
   } catch {
     return {};
@@ -715,13 +755,19 @@ function readTranscriptMeta(filePath: string, mtimeMs: number): TranscriptMeta {
   }
   const tailMeta = extractTailMeta(filePath);
   // Le premier message user (append-only) et le meta.json ne changent jamais : une seule lecture.
-  const metaFile =
+  const metaFile: AgentMetaFile =
     cached && (cached.agentType !== undefined || cached.toolUseId !== undefined)
-      ? { agentType: cached.agentType, toolUseId: cached.toolUseId }
+      ? { agentType: cached.agentType, toolUseId: cached.toolUseId, description: cached.metaDescription }
       : readAgentMetaFile(filePath);
+  const prompt = cached?.prompt ?? extractPrompt(filePath);
+  // Libellé : la description donnée par le parent si elle existe, sinon la première ligne du prompt ;
+  // dans le premier cas le début du prompt reste consultable en infobulle.
   const meta: TranscriptMeta = {
     mtimeMs,
-    description: cached?.description ?? extractDescription(filePath),
+    prompt,
+    metaDescription: metaFile.description,
+    description: metaFile.description ?? firstLine(prompt),
+    detail: metaFile.description !== undefined && prompt !== undefined ? truncate(prompt.trim()) : undefined,
     agentType: metaFile.agentType,
     toolUseId: metaFile.toolUseId,
     model: tailMeta.model,
@@ -739,6 +785,7 @@ function scanAgentsDir(
   activeThresholdMs: number,
   log: Log,
   spawnedOut?: Map<string, Set<string>>,
+  promptsOut?: Map<string, string>,
 ): AgentNode[] {
   let entries: fs.Dirent[];
   try {
@@ -763,6 +810,7 @@ function scanAgentsDir(
         lastActivity: stat.mtimeMs,
         createdAt: stat.birthtimeMs || stat.mtimeMs,
         description: meta.description,
+        detail: meta.detail,
         model: meta.model,
         contextTokens: meta.contextTokens,
         agentType: meta.agentType,
@@ -770,6 +818,9 @@ function scanAgentsDir(
         toolUseId: meta.toolUseId,
       });
       spawnedOut?.set(id, new Set(meta.toolUseIds));
+      if (meta.prompt !== undefined) {
+        promptsOut?.set(id, meta.prompt);
+      }
     } catch (error) {
       log(`Agent illisible : ${filePath} — ${String(error)}`);
     }
@@ -832,6 +883,8 @@ interface WorkflowInfo {
   name?: string;
   description?: string;
   phases?: WorkflowPhase[];
+  /** Label donné par le script à chaque agent (agentId → opts.label) : connu seulement par le json de fin de run. */
+  labels?: Map<string, string>;
 }
 
 interface WorkflowScript {
@@ -866,6 +919,24 @@ function readScriptInfo(script: WorkflowScript): WorkflowInfo {
   }
 }
 
+/** workflowProgress du json de fin de run : une entrée workflow_agent par agent, portant le label choisi par le script. */
+function readProgressLabels(progress: unknown): Map<string, string> {
+  const labels = new Map<string, string>();
+  if (Array.isArray(progress)) {
+    for (const entry of progress) {
+      if (
+        isRecord(entry) &&
+        entry.type === 'workflow_agent' &&
+        typeof entry.agentId === 'string' &&
+        typeof entry.label === 'string'
+      ) {
+        labels.set(entry.agentId, entry.label);
+      }
+    }
+  }
+  return labels;
+}
+
 /** Infos lues dans <session>/workflows/<runId>.json (script absent, ou relancé sous un autre runId) ; une lecture par version du fichier, qui peut peser des centaines de Ko. */
 const workflowJsonInfoCache = new Map<string, { mtimeMs: number; info?: WorkflowInfo }>();
 
@@ -884,7 +955,11 @@ function readWorkflowJsonInfo(jsonPath: string): WorkflowInfo | undefined {
   try {
     const json: unknown = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
     if (isRecord(json) && typeof json.workflowName === 'string') {
-      info = { name: json.workflowName, ...(typeof json.script === 'string' ? parseWorkflowMeta(json.script) : {}) };
+      info = {
+        name: json.workflowName,
+        ...(typeof json.script === 'string' ? parseWorkflowMeta(json.script) : {}),
+        labels: readProgressLabels(json.workflowProgress),
+      };
     }
   } catch {
     info = undefined;
@@ -970,6 +1045,81 @@ function readFailedAgentIds(journalPath: string): Set<string> {
   return ids;
 }
 
+/**
+ * Les agents d'un run partagent souvent un long préambule (dépôt, consignes) avant leur tâche propre : le libellé
+ * de chacun devient sa première ligne après le préambule commun à tout le run, et `detail` la suite de son prompt
+ * (infobulle). Un run d'un seul agent, ou aux prompts tous identiques, garde la première ligne : rien n'y distingue
+ * un préambule.
+ */
+function labelWorkflowAgents(agents: AgentNode[], prompts: Map<string, string>): void {
+  const texts = agents.map((agent) => prompts.get(agent.id)).filter((text): text is string => text !== undefined);
+  if (texts.length < 2) {
+    return;
+  }
+  const prefix = commonPrefix(texts);
+  if (texts.every((text) => text.length === prefix.length)) {
+    return;
+  }
+  // Coupe en début de ligne seulement : « DIMENSION — PARITÉ » et « DIMENSION — PARALLÉLISATION » divergent au milieu d'une ligne.
+  const cut = prefix.lastIndexOf('\n') + 1;
+  if (cut === 0) {
+    return;
+  }
+  for (const agent of agents) {
+    const rest = prompts.get(agent.id)?.slice(cut).trim();
+    const label = firstLine(rest);
+    if (rest === undefined || label === undefined) {
+      continue;
+    }
+    agent.description = label;
+    const detail = truncate(rest);
+    if (detail !== label) {
+      agent.detail = detail;
+    }
+  }
+}
+
+function commonPrefix(texts: string[]): string {
+  let prefix = texts[0];
+  for (const text of texts.slice(1)) {
+    let length = 0;
+    while (length < prefix.length && length < text.length && prefix[length] === text[length]) {
+      length++;
+    }
+    prefix = prefix.slice(0, length);
+  }
+  return prefix;
+}
+
+/** Labels du script pour ce run : le json de fin de run est consulté à chaque scan tant qu'ils manquent, puis mémorisés avec les infos du run. */
+function resolveWorkflowLabels(info: WorkflowInfo | undefined, jsonPath: string): Map<string, string> | undefined {
+  if (info?.labels !== undefined) {
+    return info.labels;
+  }
+  const labels = readWorkflowJsonInfo(jsonPath)?.labels;
+  if (info !== undefined && labels !== undefined) {
+    info.labels = labels;
+  }
+  return labels;
+}
+
+/** Le label donné par le script remplace le libellé tiré du prompt, qui reste en détail (infobulle). */
+function applyScriptLabels(agents: AgentNode[], labels: Map<string, string> | undefined): void {
+  if (labels === undefined) {
+    return;
+  }
+  for (const agent of agents) {
+    const label = labels.get(agent.id.replace(/^agent-/, ''));
+    if (label === undefined) {
+      continue;
+    }
+    if (agent.detail === undefined) {
+      agent.detail = agent.description;
+    }
+    agent.description = label;
+  }
+}
+
 function scanWorkflows(
   workflowsDir: string,
   nameSources: WorkflowNameSources,
@@ -991,7 +1141,8 @@ function scanWorkflows(
   return dirs
     .map((entry) => {
       const runDir = path.join(workflowsDir, entry.name);
-      const agents = scanAgentsDir(runDir, now, activeThresholdMs, log);
+      const prompts = new Map<string, string>();
+      const agents = scanAgentsDir(runDir, now, activeThresholdMs, log, undefined, prompts);
       // Un run sans agent est filtré plus bas : ne pas lire (ni mettre en cache) son journal.
       const failedIds = agents.length > 0 ? readFailedAgentIds(path.join(runDir, 'journal.jsonl')) : new Set<string>();
       for (const agent of agents) {
@@ -1000,6 +1151,13 @@ function scanWorkflows(
         }
       }
       const info = resolveWorkflowInfo(entry.name, localScripts, nameSources);
+      if (agents.length > 0) {
+        labelWorkflowAgents(agents, prompts);
+        applyScriptLabels(
+          agents,
+          resolveWorkflowLabels(info, path.join(nameSources.sessionWorkflowsDir, `${entry.name}.json`)),
+        );
+      }
       return {
         id: entry.name,
         name: info?.name,
@@ -1181,7 +1339,7 @@ function buildSessionNode(
     sessionId: entry.sessionId,
     pid: entry.pid,
     cwd: entry.cwd,
-    name: entry.name ?? entry.sessionId.slice(0, 8),
+    name: registryName(entry),
     startedAt: entry.startedAt,
     active: false,
     agents: [],
@@ -1200,10 +1358,19 @@ function buildSessionNode(
     session.lastActivity = stat.mtimeMs;
     const meta = readSessionTailMeta(transcriptPath, stat.mtimeMs);
     session.activity = meta.activity;
+    // Session reprise (--resume) : un prompt sans réponse ou un outil sans résultat datant d'avant le démarrage
+    // du processus ne sont plus en cours — sans quoi la carte « réfléchit » depuis des jours.
+    if (
+      meta.activity &&
+      (meta.activity.phase === 'thinking' || meta.activity.phase === 'tool') &&
+      meta.activity.since < entry.startedAt
+    ) {
+      session.activity = { phase: 'idle', since: meta.activity.since };
+    }
     // Phase connue : actif tant que le modèle génère ou qu'un outil tourne, au repos dès la fin du tour
     // (une longue réflexion n'écrit rien pendant des minutes) ; sinon, règle historique par mtime.
-    session.active = meta.activity
-      ? meta.activity.phase === 'thinking' || meta.activity.phase === 'tool'
+    session.active = session.activity
+      ? session.activity.phase === 'thinking' || session.activity.phase === 'tool'
       : now - stat.mtimeMs < activeThresholdMs;
     session.backgroundTasks = updateBackgroundTasks(entry.sessionId, transcriptPath, stat.size, meta);
     session.model = meta.model;

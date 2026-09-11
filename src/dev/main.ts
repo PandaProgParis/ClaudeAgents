@@ -11,7 +11,12 @@ const options = {
 };
 
 // « localhost » résout d'abord en ::1 sous Windows : on écoute les deux boucles locales, IPv6 en option.
-createDevServer(options).listen(port, '127.0.0.1', () => {
+const ipv4 = createDevServer(options);
+ipv4.on('error', (error: NodeJS.ErrnoException) => {
+  console.error(`Aperçu live : impossible d'écouter sur le port ${port} (${error.code ?? error.message})`);
+  process.exit(1);
+});
+ipv4.listen(port, '127.0.0.1', () => {
   console.log(`Claude Agents — aperçu live sur http://localhost:${port}/  (Ctrl+C pour arrêter)`);
 });
 const ipv6 = createDevServer(options);

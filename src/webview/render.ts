@@ -267,7 +267,7 @@ function renderWorkflowDetail(workflow: WorkflowNode, options: RenderOptions): s
       return [
         `<tr class="wf-agent ${squareClass(agent.status)}" data-key="wa:${escapeHtml(agent.id)}">`,
         `<td class="wf-n">#${index + 1}</td>`,
-        `<td class="wf-name" title="${escapeHtml(label)}">${escapeHtml(label)}</td>`,
+        `<td class="wf-name" title="${escapeHtml(agent.detail ?? label)}">${escapeHtml(label)}</td>`,
         `<td class="wf-model">${escapeHtml(agent.model ? abbreviateModel(agent.model) : '')}</td>`,
         `<td class="wf-num">${agent.contextTokens !== undefined ? escapeHtml(formatTokens(agent.contextTokens, locale)) : ''}</td>`,
         `<td class="wf-num">${escapeHtml(formatDuration(end - agent.createdAt))}</td>`,
@@ -308,7 +308,7 @@ function renderAgentLine(agent: AgentNode, options: RenderOptions, ordinal?: num
     icon,
     index,
     left,
-    `<span class="agent-label" title="${escapeHtml(label)}">${escapeHtml(label)}</span>`,
+    `<span class="agent-label" title="${escapeHtml(agent.detail ?? label)}">${escapeHtml(label)}</span>`,
     `<span class="agent-desc">${escapeHtml(agentDescription(agent, options.now, locale) + context)}</span>`,
     gauge,
     '</li>',

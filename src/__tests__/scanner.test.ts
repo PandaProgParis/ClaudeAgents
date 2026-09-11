@@ -1475,3 +1475,207 @@ describe('scan — contexte, lecture unifiée et effort', () => {
     expect(readEffortLevel(dir)).toBeUndefined();
   });
 });
+
+describe('scan — libellés des agents de workflow', () => {
+  const SESSION_ID = 'aaaaaaaa-1111-2222-3333-444444444444';
+  const PROJECT_DIR = 'c--dev-mon-projet';
+  const PREAMBLE =
+    'Repo: c:/dev/mon-projet. Application Next.js dans data-comparator (lancer jest depuis là).\nLa spec qui fait autorité : docs/spec.md\n\n';
+  const FIRST_LINE = 'Repo: c:/dev/mon-projet. Application Next.js dans data-comparator (lancer jest depuis là).';
+
+  function setupRun(dir: string, runId = 'wf_r-1'): { runDir: string; wfDir: string } {
+    writeRegistry(dir, registryEntry());
+    writeTranscript(dir, PROJECT_DIR, SESSION_ID, [assistantLine('claude-fable-5')], 5_000);
+    const sessionDir = join(dir, 'projects', PROJECT_DIR, SESSION_ID);
+    return { runDir: join(sessionDir, 'subagents', 'workflows', runId), wfDir: join(sessionDir, 'workflows') };
+  }
+
+  function labels(dir: string, now = NOW): Array<[string | undefined, string | undefined]> {
+    const [project] = scan({ claudeDir: dir, now, isPidAlive: alive });
+    return project.sessions[0].workflows[0].agents.map((agent) => [agent.description, agent.detail]);
+  }
+
+  it('libelle chaque agent par sa première ligne après le préambule commun au run, la suite en détail', () => {
+    const dir = makeClaudeDir();
+    const { runDir } = setupRun(dir);
+    writeAgent(runDir, 'a1', PREAMBLE + 'DIMENSION — SÛRETÉ DE LA BASCULE.\nFichiers : lib/db/store.ts', 5_000);
+    writeAgent(runDir, 'a2', PREAMBLE + 'DIMENSION — PARITÉ DU FILTRAGE.\nFichiers : components/client.tsx', 5_000);
+    writeAgent(
+      runDir,
+      'a3',
+      PREAMBLE + 'Tu es RÉFUTATEUR — lentille CORRECTION.\n\nCONSTAT :\n{ "title": "anchorRef lu dans l’updater" }',
+      5_000,
+    );
+    expect(labels(dir)).toEqual([
+      ['DIMENSION — SÛRETÉ DE LA BASCULE.', 'DIMENSION — SÛRETÉ DE LA BASCULE.\nFichiers : lib/db/store.ts'],
+      ['DIMENSION — PARITÉ DU FILTRAGE.', 'DIMENSION — PARITÉ DU FILTRAGE.\nFichiers : components/client.tsx'],
+      [
+        'Tu es RÉFUTATEUR — lentille CORRECTION.',
+        'Tu es RÉFUTATEUR — lentille CORRECTION.\n\nCONSTAT :\n{ "title": "anchorRef lu dans l’updater" }',
+      ],
+    ]);
+  });
+
+  it('coupe le préambule en début de ligne quand les prompts divergent au milieu d’une ligne', () => {
+    const dir = makeClaudeDir();
+    const { runDir } = setupRun(dir);
+    writeAgent(runDir, 'a1', PREAMBLE + 'DIMENSION — PARITÉ.', 5_000);
+    writeAgent(runDir, 'a2', PREAMBLE + 'DIMENSION — PARALLÉLISATION.', 5_000);
+    // Une seule ligne propre à l’agent : pas de détail, l’infobulle reprendrait le libellé.
+    expect(labels(dir)).toEqual([
+      ['DIMENSION — PARITÉ.', undefined],
+      ['DIMENSION — PARALLÉLISATION.', undefined],
+    ]);
+  });
+
+  it('garde la première ligne du prompt quand le run n’a qu’un agent, ou des prompts tous identiques', () => {
+    const dir = makeClaudeDir();
+    const { runDir } = setupRun(dir);
+    writeAgent(runDir, 'seul', PREAMBLE + 'TÂCHE unique', 5_000);
+    expect(labels(dir)).toEqual([[FIRST_LINE, undefined]]);
+    writeAgent(runDir, 'jumeau', PREAMBLE + 'TÂCHE unique', 5_000);
+    expect(labels(dir, NOW + 2_000)).toEqual([
+      [FIRST_LINE, undefined],
+      [FIRST_LINE, undefined],
+    ]);
+  });
+
+  it('prend le label du script dans <runId>.json en fin de run, le libellé de prompt passant en détail', () => {
+    const dir = makeClaudeDir();
+    const { runDir, wfDir } = setupRun(dir);
+    writeAgent(runDir, 'a1', PREAMBLE + 'TA VOIE : A-lib-pure\nLis la spec.', 5_000);
+    writeAgent(runDir, 'a2', PREAMBLE + 'TA VOIE : B-backend\nLis la spec.', 5_000);
+    mkdirSync(join(wfDir, 'scripts'), { recursive: true });
+    writeFileSync(join(wfDir, 'scripts', 'suite-ui-wf_r-1.js'), 'export const meta = { name: "suite-ui" }');
+    // Pendant le run : nom du script local, libellés tirés des prompts.
+    const [running] = scan({ claudeDir: dir, now: NOW, isPidAlive: alive });
+    expect(running.sessions[0].workflows[0].name).toBe('suite-ui');
+    expect(running.sessions[0].workflows[0].agents.map((agent) => agent.description)).toEqual([
+      'TA VOIE : A-lib-pure',
+      'TA VOIE : B-backend',
+    ]);
+    // Fin du run : le json arrive avec les labels du script ; a2 n’y figure pas et garde son libellé.
+    writeFileSync(
+      join(wfDir, 'wf_r-1.json'),
+      JSON.stringify({
+        runId: 'wf_r-1',
+        workflowName: 'suite-ui',
+        workflowProgress: [
+          { type: 'workflow_phase', index: 1, title: 'Implémentation' },
+          { type: 'workflow_agent', index: 1, label: 'impl:A-lib-pure', agentId: 'a1', state: 'done' },
+          { type: 'workflow_agent', index: 2, agentId: 'zzz', state: 'done' },
+        ],
+      }),
+    );
+    expect(labels(dir, NOW + 2_000)).toEqual([
+      ['impl:A-lib-pure', 'TA VOIE : A-lib-pure\nLis la spec.'],
+      ['TA VOIE : B-backend', 'TA VOIE : B-backend\nLis la spec.'],
+    ]);
+  });
+
+  it('lit aussi les labels quand le json du run est la seule source d’infos', () => {
+    const dir = makeClaudeDir();
+    const { runDir, wfDir } = setupRun(dir);
+    writeAgent(runDir, 'a1', 'relecture', 5_000);
+    mkdirSync(wfDir, { recursive: true });
+    writeFileSync(
+      join(wfDir, 'wf_r-1.json'),
+      JSON.stringify({
+        workflowName: 'revue',
+        workflowProgress: [{ type: 'workflow_agent', index: 1, label: 'review:bugs', agentId: 'a1' }],
+      }),
+    );
+    expect(labels(dir)).toEqual([['review:bugs', 'relecture']]);
+  });
+});
+
+describe('scan — libellé des sous-agents directs', () => {
+  const SESSION_ID = 'aaaaaaaa-1111-2222-3333-444444444444';
+  const PROJECT_DIR = 'c--dev-mon-projet';
+  const PROMPT = 'Repo: c:/dev/mon-projet. Application Next.js dans data-comparator.\nCorrige les largeurs des colonnes du tableau des procédures.';
+
+  function setupSession(dir: string): string {
+    writeRegistry(dir, registryEntry());
+    writeTranscript(dir, PROJECT_DIR, SESSION_ID, [assistantLine('claude-fable-5')], 5_000);
+    return join(dir, 'projects', PROJECT_DIR, SESSION_ID, 'subagents');
+  }
+
+  it('libelle un sous-agent par la description de son meta.json, le début du prompt en détail', () => {
+    const dir = makeClaudeDir();
+    const agentsDir = setupSession(dir);
+    writeAgent(agentsDir, 'aaa', PROMPT, 5_000);
+    writeFileSync(
+      join(agentsDir, 'agent-aaa.meta.json'),
+      JSON.stringify({ agentType: 'general-purpose', description: 'Corrige les largeurs du tableau', toolUseId: 'tu-1' }),
+    );
+    const [project] = scan({ claudeDir: dir, now: NOW, isPidAlive: alive });
+    const [agent] = project.sessions[0].agents;
+    expect(agent.description).toBe('Corrige les largeurs du tableau');
+    expect(agent.detail).toBe(PROMPT);
+    // Le meta.json ne se relit pas : la description tient au second scan, transcript modifié ou non.
+    touch(join(agentsDir, 'agent-aaa.jsonl'), 1_000);
+    const [again] = scan({ claudeDir: dir, now: NOW + 2_000, isPidAlive: alive });
+    expect(again.sessions[0].agents[0].description).toBe('Corrige les largeurs du tableau');
+  });
+
+  it('garde la première ligne du prompt quand le meta.json ne décrit pas l’agent', () => {
+    const dir = makeClaudeDir();
+    const agentsDir = setupSession(dir);
+    writeAgent(agentsDir, 'bbb', PROMPT, 5_000);
+    writeFileSync(join(agentsDir, 'agent-bbb.meta.json'), JSON.stringify({ agentType: 'claude', toolUseId: 'tu-2' }));
+    const [project] = scan({ claudeDir: dir, now: NOW, isPidAlive: alive });
+    const [agent] = project.sessions[0].agents;
+    expect(agent.description).toBe('Repo: c:/dev/mon-projet. Application Next.js dans data-comparator.');
+    expect(agent.detail).toBeUndefined();
+  });
+});
+
+describe('scan — session reprise et nom du registre', () => {
+  const SESSION_ID = 'aaaaaaaa-1111-2222-3333-444444444444';
+  const PROJECT_DIR = 'c--dev-mon-projet';
+  const TWO_DAYS = 2 * 86_400_000;
+
+  it('ne « réfléchit » pas sur un prompt antérieur au démarrage du processus (session reprise)', () => {
+    const dir = makeClaudeDir();
+    writeRegistry(dir, registryEntry({ startedAt: NOW - 600_000 }));
+    // Prompt resté sans réponse il y a deux jours, session reprise depuis : rien n'est en cours.
+    writeTranscript(dir, PROJECT_DIR, SESSION_ID, [stamp(userLine('fais X', 'p1'), NOW - TWO_DAYS)], 36 * 3_600_000);
+    const [project] = scan({ claudeDir: dir, now: NOW, isPidAlive: alive });
+    expect(project.sessions[0].activity?.phase).toBe('idle');
+    expect(project.sessions[0].active).toBe(false);
+  });
+
+  it('idem pour un outil resté sans résultat avant la reprise', () => {
+    const dir = makeClaudeDir();
+    writeRegistry(dir, registryEntry({ startedAt: NOW - 600_000 }));
+    writeTranscript(
+      dir,
+      PROJECT_DIR,
+      SESSION_ID,
+      [stamp(toolUseLine('Bash', 't1'), NOW - TWO_DAYS, 'tool_use')],
+      36 * 3_600_000,
+    );
+    const [project] = scan({ claudeDir: dir, now: NOW, isPidAlive: alive });
+    expect(project.sessions[0].activity?.phase).toBe('idle');
+    expect(project.sessions[0].active).toBe(false);
+  });
+
+  it('retire le suffixe aléatoire d’un nom dérivé du dossier (mon-projet-4e → mon-projet)', () => {
+    const dir = makeClaudeDir();
+    writeRegistry(dir, registryEntry({ name: 'mon-projet-4e', nameSource: 'derived' }));
+    writeTranscript(dir, PROJECT_DIR, SESSION_ID, [assistantLine('claude-fable-5')], 5_000);
+    const [project] = scan({ claudeDir: dir, now: NOW, isPidAlive: alive });
+    expect(project.sessions[0].name).toBe('mon-projet');
+  });
+
+  it('garde tel quel un nom de source inconnue ou choisi par l’utilisateur', () => {
+    const dir = makeClaudeDir();
+    writeRegistry(dir, registryEntry({ name: 'mon-projet-94' }));
+    writeTranscript(dir, PROJECT_DIR, SESSION_ID, [assistantLine('claude-fable-5')], 5_000);
+    expect(scan({ claudeDir: dir, now: NOW, isPidAlive: alive })[0].sessions[0].name).toBe('mon-projet-94');
+    const other = makeClaudeDir();
+    writeRegistry(other, registryEntry({ name: 'release-4e', nameSource: 'user' }));
+    writeTranscript(other, PROJECT_DIR, SESSION_ID, [assistantLine('claude-fable-5')], 5_000);
+    expect(scan({ claudeDir: other, now: NOW, isPidAlive: alive })[0].sessions[0].name).toBe('release-4e');
+  });
+});
