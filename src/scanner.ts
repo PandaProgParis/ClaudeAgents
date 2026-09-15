@@ -4,7 +4,9 @@ import { extractLocalUrl } from './localUrl';
 import { parseWorkflowMeta } from './workflowMeta';
 import type {
   AgentNode,
+  AgentReport,
   ProjectNode,
+  PromptCacheInfo,
   SessionNode,
   SessionRegistryEntry,
   TodoItem,
@@ -104,6 +106,11 @@ export function scan(options: ScanOptions): ProjectNode[] {
       transcriptMetaCache.delete(key);
     }
   }
+  for (const key of nestedReportCache.keys()) {
+    if (!seenFilePaths.has(key)) {
+      nestedReportCache.delete(key);
+    }
+  }
   for (const key of customTitleCache.keys()) {
     if (!liveSessionIds.has(key)) {
       customTitleCache.delete(key);
@@ -112,6 +119,16 @@ export function scan(options: ScanOptions): ProjectNode[] {
   for (const key of aiTitleCache.keys()) {
     if (!liveSessionIds.has(key)) {
       aiTitleCache.delete(key);
+    }
+  }
+  for (const key of sessionEffortCache.keys()) {
+    if (!liveSessionIds.has(key)) {
+      sessionEffortCache.delete(key);
+    }
+  }
+  for (const key of cacheInfoCache.keys()) {
+    if (!liveSessionIds.has(key)) {
+      cacheInfoCache.delete(key);
     }
   }
   for (const key of todosCache.keys()) {
@@ -265,6 +282,14 @@ export interface TailMeta {
   backgroundStarts?: BackgroundStart[];
   /** Ids des tâches de fond dont la notification de fin est dans la fenêtre. */
   notifiedTaskIds?: string[];
+  /** Effort porté par la dernière ligne assistant de la fenêtre (Claude Code ≥ 2.1.270). */
+  effort?: string;
+  /** Cache d'invite d'après le dernier bloc usage ; null = vu mais inconnaissable ; undefined = aucun usage en fenêtre. */
+  cache?: PromptCacheInfo | null;
+  /** Chiffres de fin des sous-agents dont la notification (ou le tool_result) est dans la fenêtre. */
+  agentReports?: Map<string, AgentReportRecord>;
+  /** Texte de la ligne assistant synthétique (isApiErrorMessage) si c'est la dernière réponse de la fenêtre : l'API a refusé la requête. */
+  apiError?: string;
 }
 
 interface BackgroundStart {
@@ -280,6 +305,9 @@ interface TailAnalysis {
   activity?: SessionActivity;
   backgroundStarts: BackgroundStart[];
   notifiedTaskIds: string[];
+  effort?: string;
+  cache?: PromptCacheInfo | null;
+  apiError?: string;
 }
 
 type JsonRecord = Record<string, unknown>;
@@ -344,16 +372,66 @@ function inferActivity(last: LastMessage | undefined, pendingTools: Map<string, 
   return Number.isNaN(activity.since) ? undefined : activity;
 }
 
+type CacheTtl = '5m' | '1h';
+const CACHE_TTL_MS: Record<CacheTtl, number> = { '5m': 300_000, '1h': 3_600_000 };
+
+/** Dernier message assistant porteur d'un bloc usage : date, et TTL du cache si elle se déduit. */
+interface CacheTrack {
+  anchorAt: number;
+  ttl?: CacheTtl;
+}
+
+function count(value: unknown): number {
+  return typeof value === 'number' ? value : 0;
+}
+
 /**
- * Relit la fenêtre ligne par ligne (JSON) : phase de l'agent principal et commandes de fond. Les lignes
- * assistant sont écrites bloc par bloc à la fin de chaque réponse, avec le stop_reason du message entier ;
- * la première ligne (tronquée par la fenêtre) et une dernière ligne en cours d'écriture sont ignorées.
+ * Règle de Claude Code (bundle de la webview) : quand le message a lu ou écrit du cache, la TTL vient de la
+ * ventilation `cache_creation` (ephemeral_1h / ephemeral_5m), sinon de celle du message précédent ; un message
+ * qui n'a touché aucun cache ne dit rien.
+ */
+function trackCache(usage: JsonRecord, since: number, previous: CacheTrack | undefined): CacheTrack {
+  const touched = count(usage.cache_read_input_tokens) + count(usage.cache_creation_input_tokens) > 0;
+  const breakdown = isRecord(usage.cache_creation) ? usage.cache_creation : undefined;
+  const ttl: CacheTtl | undefined = !touched
+    ? undefined
+    : count(breakdown?.ephemeral_1h_input_tokens) > 0
+      ? '1h'
+      : count(breakdown?.ephemeral_5m_input_tokens) > 0
+        ? '5m'
+        : previous?.ttl;
+  return { anchorAt: since, ttl };
+}
+
+/** null : un usage a été vu mais ne permet pas de conclure (l'état précédent ne vaut plus) ; undefined : rien vu. */
+function cacheInfo(track: CacheTrack | undefined, compactedAt: number | undefined): PromptCacheInfo | null | undefined {
+  if (track === undefined) {
+    return undefined;
+  }
+  if (track.ttl === undefined || Number.isNaN(track.anchorAt)) {
+    return null;
+  }
+  const info: PromptCacheInfo = { anchorAt: track.anchorAt, ttlMs: CACHE_TTL_MS[track.ttl] };
+  if (compactedAt !== undefined && compactedAt > track.anchorAt) {
+    info.compactedAt = compactedAt;
+  }
+  return info;
+}
+
+/**
+ * Relit la fenêtre ligne par ligne (JSON) : phase de l'agent principal, commandes de fond, effort et cache.
+ * Les lignes assistant sont écrites bloc par bloc à la fin de chaque réponse, avec le stop_reason du message
+ * entier ; la première ligne (tronquée par la fenêtre) et une dernière ligne en cours d'écriture sont ignorées.
  */
 function analyzeTail(tail: string): TailAnalysis {
   const pendingTools = new Map<string, PendingTool>();
   const starts = new Map<string, BackgroundStart>();
   const notifiedTaskIds: string[] = [];
   let last: LastMessage | undefined;
+  let effort: string | undefined;
+  let cache: CacheTrack | undefined;
+  let compactedAt: number | undefined;
+  let apiError: string | undefined;
   for (const line of tail.split('\n')) {
     let record: unknown;
     try {
@@ -369,9 +447,24 @@ function analyzeTail(tail: string): TailAnalysis {
       notifiedTaskIds.push(...taskIdsInNotification(record.content));
       continue;
     }
+    if (record.type === 'system') {
+      if (record.subtype === 'compact_boundary') {
+        compactedAt = since;
+      }
+      continue;
+    }
     const message = isRecord(record.message) ? record.message : undefined;
     const content = message?.content;
     if (record.type === 'assistant') {
+      if (typeof record.effort === 'string') {
+        effort = record.effort;
+      }
+      // Refus de l'API (limite d'usage, 429…) : Claude Code écrit une réponse synthétique portant le texte lisible.
+      // Une réponse normale ensuite l'efface : seul un refus en dernière position compte.
+      apiError = record.isApiErrorMessage === true ? resultText(content).trim() || undefined : undefined;
+      if (isRecord(message?.usage)) {
+        cache = trackCache(message.usage, since, cache);
+      }
       if (Array.isArray(content)) {
         for (const block of content) {
           if (!isRecord(block) || block.type !== 'tool_use' || typeof block.id !== 'string') {
@@ -410,7 +503,14 @@ function analyzeTail(tail: string): TailAnalysis {
       last = { kind: 'user', since };
     }
   }
-  return { activity: inferActivity(last, pendingTools), backgroundStarts: [...starts.values()], notifiedTaskIds };
+  return {
+    activity: inferActivity(last, pendingTools),
+    backgroundStarts: [...starts.values()],
+    notifiedTaskIds,
+    effort,
+    cache: cacheInfo(cache, compactedAt),
+    apiError,
+  };
 }
 
 const TODO_STATUSES = new Set<TodoStatus>(['pending', 'in_progress', 'completed']);
@@ -556,6 +656,7 @@ export function extractTailMeta(filePath: string): TailMeta {
     todosPromptId: todoPromptId(promptIds, todoIdx),
     lastPromptId: promptIds[promptIds.length - 1]?.[1],
     toolUseIds: toolUses.map((match) => match[1]),
+    agentReports: agentReportsIn(tail),
     ...analyzeTail(tail),
   };
 }
@@ -590,6 +691,12 @@ const customTitleCache = new Map<string, string>();
 
 /** Titre généré par l'IA ({"type":"ai-title"}), même mécanique de rétention que le titre custom. */
 const aiTitleCache = new Map<string, string>();
+
+/** Effort de la session, retenu quand une ligne géante chasse les lignes assistant de la fenêtre. */
+const sessionEffortCache = new Map<string, string>();
+
+/** Dernier état connu du cache d'invite par session, même mécanique de rétention. */
+const cacheInfoCache = new Map<string, PromptCacheInfo>();
 
 interface CachedTodos {
   items: TodoItem[];
@@ -713,7 +820,12 @@ interface TranscriptMeta {
   agentType: string | undefined;
   lastTool: string | undefined;
   toolUseId: string | undefined;
+  parentAgentId: string | undefined;
   toolUseIds: string[];
+  /** Chiffres de fin des petits-fils, écrits dans la queue de ce transcript à la fin de leur tool_result. */
+  agentReports: Map<string, AgentReportRecord> | undefined;
+  /** Raison d'arrêt quand le transcript finit sur un refus de l'API (texte écrit par Claude Code). */
+  failure: string | undefined;
 }
 
 interface AgentMetaFile {
@@ -721,6 +833,8 @@ interface AgentMetaFile {
   toolUseId?: string;
   /** Description passée à l'outil Agent par le parent (« Corrige les largeurs du tableau »). */
   description?: string;
+  /** Agent parent (Claude Code ≥ 2.1.270) : filiation exacte, indépendante de la fenêtre de lecture du parent. */
+  parentAgentId?: string;
 }
 
 /** Métadonnées du fichier frère agent-<id>.meta.json (immuable). */
@@ -729,15 +843,17 @@ function readAgentMetaFile(transcriptPath: string): AgentMetaFile {
     const parsed: unknown = JSON.parse(
       fs.readFileSync(transcriptPath.replace(/\.jsonl$/, '.meta.json'), 'utf8'),
     );
-    const { agentType, toolUseId, description } = parsed as {
+    const { agentType, toolUseId, description, parentAgentId } = parsed as {
       agentType?: unknown;
       toolUseId?: unknown;
       description?: unknown;
+      parentAgentId?: unknown;
     };
     return {
       agentType: typeof agentType === 'string' ? agentType : undefined,
       toolUseId: typeof toolUseId === 'string' ? toolUseId : undefined,
       description: typeof description === 'string' && description.trim().length > 0 ? description.trim() : undefined,
+      parentAgentId: typeof parentAgentId === 'string' && parentAgentId !== '' ? parentAgentId : undefined,
     };
   } catch {
     return {};
@@ -756,7 +872,12 @@ function readTranscriptMeta(filePath: string, mtimeMs: number): TranscriptMeta {
   // Le premier message user (append-only) et le meta.json ne changent jamais : une seule lecture.
   const metaFile: AgentMetaFile =
     cached && (cached.agentType !== undefined || cached.toolUseId !== undefined)
-      ? { agentType: cached.agentType, toolUseId: cached.toolUseId, description: cached.metaDescription }
+      ? {
+          agentType: cached.agentType,
+          toolUseId: cached.toolUseId,
+          description: cached.metaDescription,
+          parentAgentId: cached.parentAgentId,
+        }
       : readAgentMetaFile(filePath);
   const prompt = cached?.prompt ?? extractPrompt(filePath);
   // Libellé : la description donnée par le parent si elle existe, sinon la première ligne du prompt ;
@@ -769,10 +890,13 @@ function readTranscriptMeta(filePath: string, mtimeMs: number): TranscriptMeta {
     detail: metaFile.description !== undefined && prompt !== undefined ? truncate(prompt.trim()) : undefined,
     agentType: metaFile.agentType,
     toolUseId: metaFile.toolUseId,
+    parentAgentId: metaFile.parentAgentId,
     model: tailMeta.model,
     contextTokens: tailMeta.contextTokens,
     lastTool: tailMeta.lastTool,
     toolUseIds: tailMeta.toolUseIds ?? [],
+    agentReports: tailMeta.agentReports,
+    failure: tailMeta.apiError,
   };
   transcriptMetaCache.set(filePath, meta);
   return meta;
@@ -785,6 +909,7 @@ function scanAgentsDir(
   log: Log,
   spawnedOut?: Map<string, Set<string>>,
   promptsOut?: Map<string, string>,
+  reportsOut?: Map<string, AgentReportRecord>,
 ): AgentNode[] {
   let entries: fs.Dirent[];
   try {
@@ -805,7 +930,8 @@ function scanAgentsDir(
       agents.push({
         id,
         filePath,
-        status: now - stat.mtimeMs < activeThresholdMs ? 'active' : 'finished',
+        // Un transcript qui finit sur un refus de l'API est un agent arrêté, aussi récent soit son fichier.
+        status: meta.failure !== undefined ? 'failed' : now - stat.mtimeMs < activeThresholdMs ? 'active' : 'finished',
         lastActivity: stat.mtimeMs,
         createdAt: stat.birthtimeMs || stat.mtimeMs,
         description: meta.description,
@@ -815,10 +941,15 @@ function scanAgentsDir(
         agentType: meta.agentType,
         lastTool: meta.lastTool,
         toolUseId: meta.toolUseId,
+        parentAgentId: meta.parentAgentId,
+        failure: meta.failure,
       });
       spawnedOut?.set(id, new Set(meta.toolUseIds));
       if (meta.prompt !== undefined) {
         promptsOut?.set(id, meta.prompt);
+      }
+      for (const [childId, report] of meta.agentReports ?? []) {
+        reportsOut?.set(childId, report);
       }
     } catch (error) {
       log(`Agent illisible : ${filePath} — ${String(error)}`);
@@ -829,17 +960,23 @@ function scanAgentsDir(
 }
 
 /**
- * Réordonne les agents en profondeur d'abord : chaque agent dont le toolUseId figure
- * dans le transcript d'un autre (son parent) est placé derrière lui avec depth + 1.
- * Les fichiers sont posés à plat sur disque — la hiérarchie n'existe que par ce lien.
+ * Réordonne les agents en profondeur d'abord : chaque agent est placé derrière son parent avec depth + 1.
+ * Le parent est celui que nomme le meta.json (parentAgentId, Claude Code ≥ 2.1.270) ; à défaut, celui dont
+ * le transcript porte le toolUseId de l'agent — lien qui se perd quand l'appel sort de la fenêtre de queue
+ * du parent. Les fichiers sont posés à plat sur disque : la hiérarchie n'existe que par ces liens.
  */
 function orderByFiliation(agents: AgentNode[], spawned: Map<string, Set<string>>): AgentNode[] {
   const childrenOf = new Map<string, AgentNode[]>();
   const roots: AgentNode[] = [];
+  const byId = new Map(agents.map((agent) => [agent.id, agent]));
   for (const agent of agents) {
-    const parent = agent.toolUseId
-      ? agents.find((candidate) => candidate !== agent && spawned.get(candidate.id)?.has(agent.toolUseId as string))
-      : undefined;
+    const declared = agent.parentAgentId !== undefined ? byId.get(`agent-${agent.parentAgentId}`) : undefined;
+    const parent =
+      declared !== undefined && declared !== agent
+        ? declared
+        : agent.toolUseId
+          ? agents.find((candidate) => candidate !== agent && spawned.get(candidate.id)?.has(agent.toolUseId as string))
+          : undefined;
     if (parent) {
       const siblings = childrenOf.get(parent.id) ?? [];
       siblings.push(agent);
@@ -882,8 +1019,15 @@ interface WorkflowInfo {
   name?: string;
   description?: string;
   phases?: WorkflowPhase[];
-  /** Label donné par le script à chaque agent (agentId → opts.label) : connu seulement par le json de fin de run. */
-  labels?: Map<string, string>;
+  /** Par agent (agentId) : label donné par le script (opts.label) et erreur consignée — connus seulement par le json de fin de run. */
+  labels?: Map<string, WorkflowAgentProgress>;
+}
+
+/** Entrée workflow_agent du workflowProgress d'un json de fin de run. */
+interface WorkflowAgentProgress {
+  label?: string;
+  /** Champ error de l'entrée quand state vaut « error » (ex. « You've hit your weekly limit · resets … »). */
+  error?: string;
 }
 
 interface WorkflowScript {
@@ -918,22 +1062,22 @@ function readScriptInfo(script: WorkflowScript): WorkflowInfo {
   }
 }
 
-/** workflowProgress du json de fin de run : une entrée workflow_agent par agent, portant le label choisi par le script. */
-function readProgressLabels(progress: unknown): Map<string, string> {
-  const labels = new Map<string, string>();
+/** workflowProgress du json de fin de run : une entrée workflow_agent par agent, avec le label choisi par le script et l'erreur éventuelle. */
+function readProgressEntries(progress: unknown): Map<string, WorkflowAgentProgress> {
+  const entries = new Map<string, WorkflowAgentProgress>();
   if (Array.isArray(progress)) {
     for (const entry of progress) {
-      if (
-        isRecord(entry) &&
-        entry.type === 'workflow_agent' &&
-        typeof entry.agentId === 'string' &&
-        typeof entry.label === 'string'
-      ) {
-        labels.set(entry.agentId, entry.label);
+      if (!isRecord(entry) || entry.type !== 'workflow_agent' || typeof entry.agentId !== 'string') {
+        continue;
+      }
+      const label = typeof entry.label === 'string' ? entry.label : undefined;
+      const error = typeof entry.error === 'string' && entry.error.trim() !== '' ? entry.error.trim() : undefined;
+      if (label !== undefined || error !== undefined) {
+        entries.set(entry.agentId, { label, error });
       }
     }
   }
-  return labels;
+  return entries;
 }
 
 /** Infos lues dans <session>/workflows/<runId>.json (script absent, ou relancé sous un autre runId) ; une lecture par version du fichier, qui peut peser des centaines de Ko. */
@@ -957,7 +1101,7 @@ function readWorkflowJsonInfo(jsonPath: string): WorkflowInfo | undefined {
       info = {
         name: json.workflowName,
         ...(typeof json.script === 'string' ? parseWorkflowMeta(json.script) : {}),
-        labels: readProgressLabels(json.workflowProgress),
+        labels: readProgressEntries(json.workflowProgress),
       };
     }
   } catch {
@@ -1091,7 +1235,7 @@ function commonPrefix(texts: string[]): string {
 }
 
 /** Labels du script pour ce run : le json de fin de run est consulté à chaque scan tant qu'ils manquent, puis mémorisés avec les infos du run. */
-function resolveWorkflowLabels(info: WorkflowInfo | undefined, jsonPath: string): Map<string, string> | undefined {
+function resolveWorkflowLabels(info: WorkflowInfo | undefined, jsonPath: string): Map<string, WorkflowAgentProgress> | undefined {
   if (info?.labels !== undefined) {
     return info.labels;
   }
@@ -1102,20 +1246,29 @@ function resolveWorkflowLabels(info: WorkflowInfo | undefined, jsonPath: string)
   return labels;
 }
 
-/** Le label donné par le script remplace le libellé tiré du prompt, qui reste en détail (infobulle). */
-function applyScriptLabels(agents: AgentNode[], labels: Map<string, string> | undefined): void {
-  if (labels === undefined) {
+/**
+ * Le label donné par le script remplace le libellé tiré du prompt, qui reste en détail (infobulle) ;
+ * l'erreur consignée par Claude Code devient la raison d'échec de l'agent (et le marque en échec).
+ */
+function applyScriptLabels(agents: AgentNode[], progress: Map<string, WorkflowAgentProgress> | undefined): void {
+  if (progress === undefined) {
     return;
   }
   for (const agent of agents) {
-    const label = labels.get(agent.id.replace(/^agent-/, ''));
-    if (label === undefined) {
+    const entry = progress.get(agent.id.replace(/^agent-/, ''));
+    if (entry === undefined) {
       continue;
     }
-    if (agent.detail === undefined) {
-      agent.detail = agent.description;
+    if (entry.label !== undefined) {
+      if (agent.detail === undefined) {
+        agent.detail = agent.description;
+      }
+      agent.description = entry.label;
     }
-    agent.description = label;
+    if (entry.error !== undefined) {
+      agent.failure = entry.error;
+      agent.status = 'failed';
+    }
   }
 }
 
@@ -1185,6 +1338,146 @@ function readSessionTailMeta(filePath: string, mtimeMs: number): TailMeta {
   return meta;
 }
 
+/**
+ * Bloc <usage> que Claude Code écrit à la fin d'un sous-agent, sous deux formes : en balises dans la notification
+ * de fin d'un agent de fond ; en clés/valeurs sur trois lignes (\n échappés dans le JSONL) en queue du tool_result
+ * d'un agent exécuté au premier plan.
+ */
+const USAGE_BLOCK_PATTERN =
+  /<usage>(?:<subagent_tokens>(\d+)<\/subagent_tokens><tool_uses>(\d+)<\/tool_uses><duration_ms>(\d+)<\/duration_ms>|subagent_tokens: (\d+)(?:\\n|\s)+tool_uses: (\d+)(?:\\n|\s)+duration_ms: (\d+))<\/usage>/g;
+const USAGE_MARKER = '<usage>';
+/** « agentId: X » que Claude Code écrit juste avant le bloc <usage> d'un agent exécuté au premier plan. */
+const AGENT_ID_PATTERN = /agentId:[ \t]*([A-Za-z0-9_-]+)/g;
+const NOTIFICATION_STATUS_PATTERN = /<status>([a-z_]+)<\/status>/;
+
+interface AgentReportRecord extends AgentReport {
+  /** La notification dit failed, ou le tool_result porte is_error. */
+  failed: boolean;
+}
+
+/**
+ * Une ligne JSONL brute portant un bloc <usage> : l'agent concerné et ses chiffres. Dans une notification
+ * de fin, l'agent est le task-id (son rapport, qui suit, peut citer n'importe quoi) ; dans un tool_result
+ * au premier plan, c'est le dernier « agentId: X » avant le bloc. Le dernier bloc de la ligne fait foi.
+ */
+function reportFromLine(line: string): { id: string; record: AgentReportRecord } | undefined {
+  const usages = [...line.matchAll(USAGE_BLOCK_PATTERN)];
+  const usage = usages[usages.length - 1];
+  if (usage === undefined) {
+    return undefined;
+  }
+  let id: string | undefined;
+  if (line.includes('<task-notification>')) {
+    id = [...line.matchAll(TASK_ID_RAW_PATTERN)][0]?.[1];
+  } else {
+    const ids = [...line.slice(0, usage.index).matchAll(AGENT_ID_PATTERN)];
+    id = ids[ids.length - 1]?.[1];
+  }
+  if (id === undefined) {
+    return undefined;
+  }
+  const [tokens, toolUses, durationMs] = usage[1] !== undefined ? [usage[1], usage[2], usage[3]] : [usage[4], usage[5], usage[6]];
+  return {
+    id,
+    record: {
+      tokens: Number(tokens),
+      toolUses: Number(toolUses),
+      durationMs: Number(durationMs),
+      failed: NOTIFICATION_STATUS_PATTERN.exec(line)?.[1] === 'failed' || line.includes('"is_error":true'),
+    },
+  };
+}
+
+/** Chiffres de fin des sous-agents dans un bloc de texte JSONL (une ligne par notification) ; la dernière vue l'emporte. */
+function extractAgentReports(text: string, into: Map<string, AgentReportRecord>): void {
+  let from = 0;
+  for (;;) {
+    const idx = text.indexOf(USAGE_MARKER, from);
+    if (idx === -1) {
+      return;
+    }
+    const start = text.lastIndexOf('\n', idx) + 1;
+    const newline = text.indexOf('\n', idx);
+    const end = newline === -1 ? text.length : newline;
+    const found = reportFromLine(text.slice(start, end));
+    if (found) {
+      into.set(found.id, found.record);
+    }
+    from = end;
+  }
+}
+
+function agentReportsIn(text: string): Map<string, AgentReportRecord> | undefined {
+  const reports = new Map<string, AgentReportRecord>();
+  extractAgentReports(text, reports);
+  return reports.size > 0 ? reports : undefined;
+}
+
+/** Relecture bornée du transcript d'un agent parent : les pièces jointes qui suivent la fin d'un enfant peuvent peser plus que la queue. */
+const NESTED_REPORT_READ_BYTES = 2 * 1024 * 1024;
+const nestedReportCache = new Map<string, { mtimeMs: number; reports: Map<string, AgentReportRecord> }>();
+
+/** Chiffres de fin des enfants d'un agent, lus dans les derniers Mo de son transcript ; une lecture par version du fichier. */
+function deepAgentReports(filePath: string): Map<string, AgentReportRecord> {
+  let mtimeMs: number;
+  try {
+    mtimeMs = fs.statSync(filePath).mtimeMs;
+  } catch {
+    return new Map();
+  }
+  const cached = nestedReportCache.get(filePath);
+  if (cached && cached.mtimeMs === mtimeMs) {
+    return cached.reports;
+  }
+  const reports = new Map<string, AgentReportRecord>();
+  const chunk = readChunk(filePath, 'tail', NESTED_REPORT_READ_BYTES);
+  if (chunk !== undefined) {
+    extractAgentReports(chunk, reports);
+  }
+  nestedReportCache.set(filePath, { mtimeMs, reports });
+  return reports;
+}
+
+/**
+ * Complète les chiffres des petits-fils que la queue de leur parent ne montrait plus : seuls les parents déclarés
+ * (parentAgentId) dont un enfant déjà arrêté reste sans chiffres sont relus, et jamais tant qu'un enfant tourne encore.
+ */
+function completeNestedReports(agents: AgentNode[], reports: Map<string, AgentReportRecord>): void {
+  const childrenOf = new Map<string, AgentNode[]>();
+  for (const agent of agents) {
+    if (agent.parentAgentId !== undefined) {
+      childrenOf.set(agent.parentAgentId, [...(childrenOf.get(agent.parentAgentId) ?? []), agent]);
+    }
+  }
+  for (const parent of agents) {
+    const children = childrenOf.get(parent.id.replace(/^agent-/, ''));
+    const missing = children?.some((child) => child.status !== 'active' && !reports.has(child.id.replace(/^agent-/, '')));
+    if (missing !== true) {
+      continue;
+    }
+    for (const [id, report] of deepAgentReports(parent.filePath)) {
+      if (!reports.has(id)) {
+        reports.set(id, report);
+      }
+    }
+  }
+}
+
+/** Le parent a reçu la fin de l'agent : ses chiffres sont ceux de Claude Code, et il ne tourne plus quel que soit le mtime de son transcript. */
+function applyAgentReports(agents: AgentNode[], reports: Map<string, AgentReportRecord> | undefined): void {
+  if (reports === undefined || reports.size === 0) {
+    return;
+  }
+  for (const agent of agents) {
+    const record = reports.get(agent.id.replace(/^agent-/, ''));
+    if (record === undefined) {
+      continue;
+    }
+    agent.report = { tokens: record.tokens, toolUses: record.toolUses, durationMs: record.durationMs };
+    agent.status = record.failed ? 'failed' : 'finished';
+  }
+}
+
 /** Tête de la sortie d'une commande de fond, où un serveur annonce son adresse. */
 const OUTPUT_READ_BYTES = 4 * 1024;
 /** Queue de cette même sortie, où Claude Code écrit le marqueur de shell tué. */
@@ -1206,6 +1499,8 @@ interface CachedBackground {
   outputs: Map<string, { file: string; mtimeMs: number }>;
   /** Tâches dont la sortie s'est terminée par le marqueur : leur lancement, encore en fenêtre, ne les ressuscite pas. */
   killed: Set<string>;
+  /** Chiffres de fin des sous-agents (agentId → bloc <usage>), retenus une fois leur notification sortie de la fenêtre. */
+  reports: Map<string, AgentReportRecord>;
   /** Taille du transcript au scan précédent : les octets suivants passés hors fenêtre sont relus. */
   scannedSize: number;
 }
@@ -1215,7 +1510,7 @@ const backgroundCache = new Map<string, CachedBackground>();
 /** Au premier scan d'une session, relecture (bornée) du transcript : un serveur lancé il y a une heure en est loin. */
 const BACKGROUND_BOOTSTRAP_BYTES = 8 * 1024 * 1024;
 /** Seules les lignes portant l'un de ces marqueurs comptent : pré-filtre avant le JSON.parse. */
-const BACKGROUND_MARKER_PATTERN = /run_in_background|running in background with ID|<task-notification>/g;
+const BACKGROUND_MARKER_PATTERN = /run_in_background|running in background with ID|<task-notification>|<usage>/g;
 
 /** Lignes complètes du bloc contenant un marqueur, dans l'ordre, sans découper tout le bloc. */
 function markedLines(chunk: string): string[] {
@@ -1233,7 +1528,8 @@ function markedLines(chunk: string): string[] {
   return lines;
 }
 
-function bootstrapBackground(transcriptPath: string, size: number): TailAnalysis | undefined {
+/** Lignes marquées des derniers Mo du transcript, quand il dépasse la fenêtre de queue (sinon la queue suffit). */
+function bootstrapText(transcriptPath: string, size: number): string | undefined {
   if (size <= TAIL_READ_BYTES) {
     return undefined;
   }
@@ -1241,7 +1537,7 @@ function bootstrapBackground(transcriptPath: string, size: number): TailAnalysis
   if (chunk === undefined) {
     return undefined;
   }
-  return analyzeTail(markedLines(chunk).join('\n'));
+  return markedLines(chunk).join('\n');
 }
 
 function addBackgroundStarts(cached: CachedBackground, starts: BackgroundStart[]): void {
@@ -1261,18 +1557,22 @@ function addBackgroundStarts(cached: CachedBackground, starts: BackgroundStart[]
   }
 }
 
-/** Un transcript qui grossit de plus d'une fenêtre entre deux scans : relit la partie sautée pour les fins de tâche. */
-function catchUpNotifications(transcriptPath: string, cached: CachedBackground, size: number): void {
-  const skipped = size - TAIL_READ_BYTES + NOTIFICATION_OVERLAP_BYTES - cached.scannedSize;
-  if (cached.tasks.size === 0 || size - TAIL_READ_BYTES <= cached.scannedSize) {
+/** Un transcript qui grossit de plus d'une fenêtre entre deux scans : relit la partie sautée pour les fins de tâche et d'agent. */
+function catchUpSkipped(transcriptPath: string, cached: CachedBackground, size: number): void {
+  if (size - TAIL_READ_BYTES <= cached.scannedSize) {
     return;
   }
+  const skipped = size - TAIL_READ_BYTES + NOTIFICATION_OVERLAP_BYTES - cached.scannedSize;
   const text = readRange(transcriptPath, cached.scannedSize, Math.min(skipped, NOTIFICATION_CATCHUP_MAX_BYTES));
-  for (const notification of (text ?? '').matchAll(TASK_NOTIFICATION_RAW_PATTERN)) {
+  if (text === undefined) {
+    return;
+  }
+  for (const notification of text.matchAll(TASK_NOTIFICATION_RAW_PATTERN)) {
     for (const id of notification[1].matchAll(TASK_ID_RAW_PATTERN)) {
       cached.tasks.delete(id[1]);
     }
   }
+  extractAgentReports(text, cached.reports);
 }
 
 /** Le shell a été tué : Claude Code l'écrit seul sur la dernière ligne de la sortie, jamais dans le transcript. */
@@ -1331,27 +1631,37 @@ function updateBackgroundTasks(
 ): BackgroundTask[] | undefined {
   let cached = backgroundCache.get(sessionId);
   if (!cached) {
-    cached = { tasks: new Map(), outputs: new Map(), killed: new Set(), scannedSize: size };
+    cached = { tasks: new Map(), outputs: new Map(), killed: new Set(), reports: new Map(), scannedSize: size };
     backgroundCache.set(sessionId, cached);
-    const past = bootstrapBackground(transcriptPath, size);
-    if (past) {
+    const pastText = bootstrapText(transcriptPath, size);
+    if (pastText !== undefined) {
+      const past = analyzeTail(pastText);
       addBackgroundStarts(cached, past.backgroundStarts);
       for (const id of past.notifiedTaskIds) {
         cached.tasks.delete(id);
       }
+      extractAgentReports(pastText, cached.reports);
     }
   }
   addBackgroundStarts(cached, meta.backgroundStarts ?? []);
-  catchUpNotifications(transcriptPath, cached, size);
+  catchUpSkipped(transcriptPath, cached, size);
   cached.scannedSize = size;
   for (const id of meta.notifiedTaskIds ?? []) {
     cached.tasks.delete(id);
+  }
+  for (const [id, report] of meta.agentReports ?? []) {
+    cached.reports.set(id, report);
   }
   refreshFromOutputs(cached);
   if (cached.tasks.size === 0) {
     return undefined;
   }
   return [...cached.tasks.values()].sort((a, b) => a.startedAt - b.startedAt);
+}
+
+/** Chiffres de fin connus des sous-agents de la session (vus en fenêtre, au premier scan ou en rattrapage). */
+function agentReportsFor(sessionId: string): Map<string, AgentReportRecord> | undefined {
+  return backgroundCache.get(sessionId)?.reports;
 }
 
 function buildSessionNode(
@@ -1401,6 +1711,17 @@ function buildSessionNode(
       ? session.activity.phase === 'thinking' || session.activity.phase === 'tool'
       : now - stat.mtimeMs < activeThresholdMs;
     session.backgroundTasks = updateBackgroundTasks(entry.sessionId, transcriptPath, stat.size, meta);
+    if (meta.effort !== undefined) {
+      sessionEffortCache.set(entry.sessionId, meta.effort);
+    }
+    // null : le dernier usage vu ne permet plus de conclure ; undefined : aucun usage dans la fenêtre, l'état connu tient.
+    if (meta.cache === null) {
+      cacheInfoCache.delete(entry.sessionId);
+    } else if (meta.cache !== undefined) {
+      cacheInfoCache.set(entry.sessionId, meta.cache);
+    }
+    session.effort = sessionEffortCache.get(entry.sessionId);
+    session.cache = cacheInfoCache.get(entry.sessionId);
     session.model = meta.model;
     session.contextTokens = meta.contextTokens;
     session.gitBranch = meta.gitBranch;
@@ -1436,7 +1757,14 @@ function buildSessionNode(
 
   const subagentsDir = path.join(projectDir, entry.sessionId, 'subagents');
   const spawned = new Map<string, Set<string>>();
-  session.agents = orderByFiliation(scanAgentsDir(subagentsDir, now, activeThresholdMs, log, spawned), spawned);
+  // Les chiffres de fin d'un petit-fils sont dans le transcript de son parent (agent), ceux d'un fils dans celui de la session.
+  const nestedReports = new Map<string, AgentReportRecord>();
+  session.agents = orderByFiliation(
+    scanAgentsDir(subagentsDir, now, activeThresholdMs, log, spawned, undefined, nestedReports),
+    spawned,
+  );
+  completeNestedReports(session.agents, nestedReports);
+  applyAgentReports(session.agents, new Map([...nestedReports, ...(agentReportsFor(entry.sessionId) ?? [])]));
   session.workflows = scanWorkflows(
     path.join(subagentsDir, 'workflows'),
     {
@@ -1474,8 +1802,11 @@ function buildSessionNode(
 /** Réservé aux tests : vide les caches module-level. */
 export function clearScannerCaches(): void {
   transcriptMetaCache.clear();
+  nestedReportCache.clear();
   customTitleCache.clear();
   aiTitleCache.clear();
+  sessionEffortCache.clear();
+  cacheInfoCache.clear();
   todosCache.clear();
   sessionTailCache.clear();
   deepPromptIdCache.clear();

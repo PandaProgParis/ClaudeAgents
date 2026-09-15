@@ -7,12 +7,18 @@ import { buildState, localUrls } from './state';
 import { probeUrls } from './portProbe';
 import { countWaitingSessions } from './visibility';
 import { CardsViewProvider } from './cardsView';
+import { readUsage } from './usage';
+import { MENU_COMMAND, UsageStatusBar, type StatusSide } from './usageStatusBar';
+import type { StatusFormat } from './usageStatus';
 
 const POLL_INTERVAL_MS = 2000;
 /** Vue masquée : on continue à scanner, plus lentement, pour tenir à jour le badge « sessions en attente ». */
 const HIDDEN_POLL_INTERVAL_MS = 5000;
 const SCOPE_STATE_KEY = 'currentProjectOnly';
 const SCOPE_CONTEXT_KEY = 'claudeAgents.currentProjectOnly';
+/** Barre d'état : le compte à rebours avance chaque seconde, le fichier d'usage est relu toutes les 5 s. */
+const STATUS_TICK_MS = 1000;
+const STATUS_TICKS_PER_READ = 5;
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel('Claude Agents');
@@ -30,6 +36,7 @@ export function activate(context: vscode.ExtensionContext): void {
     try {
       const config = vscode.workspace.getConfiguration('claudeAgents');
       const locale = resolveLocale(vscode.env.language);
+      const workspaceFolders = (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
       const state = buildState({
         claudeDir,
         now,
@@ -38,10 +45,12 @@ export function activate(context: vscode.ExtensionContext): void {
           retentionSeconds: config.get<number>('finishedAgentRetentionSeconds', 60),
         },
         inactiveSessionRetentionMinutes: config.get<number>('inactiveSessionRetentionMinutes', 10),
+        showUsage: config.get<boolean>('showUsage', true),
+        usageFile: config.get<string>('usageFile', ''),
         locale,
-        workspaceFolders: currentProjectOnly
-          ? (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath)
-          : undefined,
+        workspaceFolders: currentProjectOnly ? workspaceFolders : undefined,
+        // Les sessions du workspace ouvert restent affichées au-delà de la rétention d'inactivité.
+        pinnedFolders: config.get<boolean>('alwaysShowWorkspaceSessions', true) ? workspaceFolders : undefined,
         log: (message) => output.appendLine(message),
       });
       // Sondage des adresses locales en arrière-plan : le prochain scan lira le résultat.
@@ -87,6 +96,52 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('claudeAgents.focusCurrentProject', () => setScope(true)),
     vscode.commands.registerCommand('claudeAgents.showAllProjects', () => setScope(false)),
+    // Roue dentée de la barre de titre : réglages filtrés sur l'extension.
+    vscode.commands.registerCommand('claudeAgents.openSettings', () =>
+      vscode.commands.executeCommand('workbench.action.openSettings', '@ext:pandaprog.claude-agents'),
+    ),
+  );
+
+  // Usage dans la barre d'état : indépendant de la vue, visible même quand elle est fermée.
+  const usageBar = new UsageStatusBar({
+    locale: resolveLocale(vscode.env.language),
+    now: Date.now,
+    readSettings: () => {
+      const config = vscode.workspace.getConfiguration('claudeAgents');
+      return {
+        format: config.get<StatusFormat>('usageStatusBar', 'text'),
+        side: config.get<StatusSide>('usageStatusBarSide', 'right'),
+        usageFile: config.get<string>('usageFile', ''),
+        showUsage: config.get<boolean>('showUsage', true),
+      };
+    },
+    readUsage,
+    updateSetting: (key, value) =>
+      vscode.workspace.getConfiguration('claudeAgents').update(key, value, vscode.ConfigurationTarget.Global),
+  });
+  usageBar.refresh();
+  let statusTicks = 0;
+  const statusTimer = setInterval(() => {
+    statusTicks = (statusTicks + 1) % STATUS_TICKS_PER_READ;
+    if (statusTicks === 0) {
+      usageBar.refresh();
+    } else {
+      usageBar.tick();
+    }
+  }, STATUS_TICK_MS);
+  context.subscriptions.push(
+    usageBar,
+    { dispose: () => clearInterval(statusTimer) },
+    vscode.commands.registerCommand(MENU_COMMAND, () => usageBar.showMenu()),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (!event.affectsConfiguration('claudeAgents')) {
+        return;
+      }
+      usageBar.refresh();
+      if (provider.resolved) {
+        runScan();
+      }
+    }),
   );
 
   // fs.watch émet des rafales (rename+change par fichier sous Windows) : on coalesce en un seul scan.

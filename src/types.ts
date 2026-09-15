@@ -46,10 +46,50 @@ export interface BackgroundTask {
   urlAlive?: boolean;
 }
 
+/**
+ * Chiffres de fin d'un sous-agent tels que Claude Code les écrit dans le transcript parent
+ * (bloc `<usage>` de la notification de fin, ou queue du tool_result) : ce sont ceux de sa carte des agents.
+ */
+export interface AgentReport {
+  tokens: number;
+  toolUses: number;
+  durationMs: number;
+}
+
+/**
+ * Cache d'invite de la session : TTL lue dans la ventilation `cache_creation` du dernier bloc usage
+ * (5 min ou 1 h) et horodatage de ce message. `compactedAt` : une compaction postérieure a rendu le cache inutile.
+ */
+export interface PromptCacheInfo {
+  anchorAt: number;
+  ttlMs: number;
+  compactedAt?: number;
+}
+
 /** Phase déclarée par le script d'un workflow (meta.phases) : le plan, pas la progression. */
 export interface WorkflowPhase {
   title: string;
   detail?: string;
+}
+
+/** Une limite du forfait telle qu'écrite dans `limits[]` du fichier d'usage. */
+export interface UsageLimit {
+  /** `session`, `weekly_all`, `weekly_scoped`… tel quel : la vue traduit ce qu'elle connaît. */
+  kind: string;
+  /** Modèle ou surface concernée (`weekly_scoped`), ex. « Fable ». */
+  scopeLabel?: string;
+  /** Pourcentage consommé, borné 0-100. */
+  percent: number;
+  /** Fin de la fenêtre, en horodatage. */
+  resetsAt?: number;
+  severity: 'normal' | 'warning' | 'critical';
+}
+
+/** Limites du forfait lues dans le fichier d'usage tenu par un outil tiers. */
+export interface UsageSnapshot {
+  limits: UsageLimit[];
+  /** Dernière écriture du fichier : sert à signaler des chiffres vieillis. */
+  updatedAt: number;
 }
 
 /** Message d'état poussé à la webview par l'extension (ou rejoué par le serveur d'aperçu local). */
@@ -60,6 +100,12 @@ export interface StateMessage {
   inactiveSessionRetentionMinutes?: number;
   locale?: Locale;
   now: number;
+  /** Limites du forfait, présentes seulement si la fonction est activée. */
+  usage?: UsageSnapshot;
+  /** Chemin attendu du fichier d'usage : affiché dans la card d'aide quand il manque. */
+  usageFile?: string;
+  /** Dossiers du workspace : leurs sessions restent affichées au-delà de la rétention d'inactivité. */
+  pinnedFolders?: string[];
 }
 
 export type TodoStatus = 'pending' | 'in_progress' | 'completed';
@@ -83,12 +129,21 @@ export interface AgentNode {
   detail?: string;
   model?: string;
   contextTokens?: number;
+  /** Chiffres écrits par Claude Code à la fin de l'agent (absents tant qu'il tourne, ou pour un agent de workflow). */
+  report?: AgentReport;
+  /**
+   * Raison de l'échec telle que Claude Code l'a écrite : champ error de l'entrée workflow_agent du json de fin de run,
+   * sinon texte de la ligne assistant synthétique (isApiErrorMessage) qui clôt le transcript de l'agent.
+   */
+  failure?: string;
   /** Type déclaré dans agent-<id>.meta.json (ex. « superpowers:code-reviewer »). */
   agentType?: string;
   /** Nom du dernier outil utilisé (dernier bloc tool_use de la fenêtre de queue). */
   lastTool?: string;
   /** Id du bloc tool_use qui a lancé cet agent (agent-<id>.meta.json) — sert à la filiation. */
   toolUseId?: string;
+  /** Agent qui a lancé celui-ci, écrit par Claude Code ≥ 2.1.270 dans le meta.json : filiation exacte, sans fenêtre de lecture. */
+  parentAgentId?: string;
   /** Profondeur de filiation : 0 = lancé par la session, 1 = petit-fils, etc. */
   depth?: number;
 }
@@ -117,6 +172,10 @@ export interface SessionNode {
   lastActivity?: number;
   model?: string;
   contextTokens?: number;
+  /** Effort de la session, champ racine des lignes assistant (Claude Code ≥ 2.1.270) ; absent avant. */
+  effort?: string;
+  /** Cache d'invite : absent quand le transcript ne permet pas de le connaître. */
+  cache?: PromptCacheInfo;
   gitBranch?: string;
   /** Nom du dernier outil utilisé (dernier bloc tool_use de la fenêtre de queue). */
   lastTool?: string;

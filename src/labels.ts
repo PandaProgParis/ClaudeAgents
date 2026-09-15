@@ -1,5 +1,5 @@
 import type { AgentNode, WorkflowNode } from './types';
-import { abbreviateModel, formatDuration, formatRelativeTime } from './format';
+import { abbreviateModel, formatDuration, formatRelativeTime, formatTokens } from './format';
 import { STRINGS, type Locale, type LocaleStrings } from './i18n';
 
 export function agentLabel(agent: AgentNode): string {
@@ -22,17 +22,45 @@ export function activityVerb(toolName: string, locale: Locale = 'fr'): string {
   return entry ? STRINGS[locale].verbs[entry.verb] : `⚙ ${toolName}`;
 }
 
-/** Le statut est porté par le picto (pastille / ✓) et le verbe par le tag de gauche, pas par du texte ici. */
+/**
+ * Le statut est porté par le picto (pastille / ✓) et le verbe par le tag de gauche, pas par du texte ici.
+ * Agent terminé : la durée du run écrite par Claude Code quand on l'a, sinon l'ancienneté de sa dernière écriture.
+ */
 export function agentDescription(agent: AgentNode, now: number, locale: Locale = 'fr'): string {
   const parts: string[] = [];
   if (agent.model) {
     parts.push(abbreviateModel(agent.model));
   }
-  parts.push(
-    agent.status === 'active'
-      ? formatDuration(now - agent.lastActivity)
-      : formatRelativeTime(now - agent.lastActivity, locale),
-  );
+  if (agent.status === 'active') {
+    parts.push(formatDuration(now - agent.lastActivity));
+  } else if (agent.report !== undefined) {
+    parts.push(formatDuration(agent.report.durationMs));
+  } else {
+    parts.push(formatRelativeTime(now - agent.lastActivity, locale));
+  }
+  return parts.join(' · ');
+}
+
+/** Jetons à afficher : ceux écrits par Claude Code pour un agent terminé, sinon le contexte lu dans son transcript. */
+export function agentTokens(agent: AgentNode): number | undefined {
+  return agent.status !== 'active' && agent.report !== undefined ? agent.report.tokens : agent.contextTokens;
+}
+
+/** Durée d'un agent : écoulée s'il tourne ; écrite par Claude Code s'il a fini ; sinon création → dernière écriture. */
+function agentDuration(agent: AgentNode, now: number): number {
+  if (agent.status === 'active') {
+    return now - agent.createdAt;
+  }
+  return agent.report?.durationMs ?? agent.lastActivity - agent.createdAt;
+}
+
+/** « durée · jetons » d'une ligne de la carte des agents (les mêmes chiffres que la carte de Claude Code). */
+export function agentFigures(agent: AgentNode, now: number, locale: Locale = 'fr'): string {
+  const parts = [formatDuration(agentDuration(agent, now))];
+  const tokens = agentTokens(agent);
+  if (tokens !== undefined) {
+    parts.push(formatTokens(tokens, locale));
+  }
   return parts.join(' · ');
 }
 
@@ -68,6 +96,9 @@ export function squareTitle(agent: AgentNode, now: number, locale: Locale = 'fr'
   const parts = [ordinal === undefined ? short : `#${ordinal} ${short}`, agentDescription(agent, now, locale)];
   if (agent.status === 'failed') {
     parts.push(STRINGS[locale].failed);
+    if (agent.failure !== undefined) {
+      parts.push(agent.failure);
+    }
   }
   return parts.join(' · ');
 }

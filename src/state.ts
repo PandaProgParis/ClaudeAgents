@@ -1,5 +1,6 @@
 import { readEffortLevel, scan } from './scanner';
 import { isUrlAlive } from './portProbe';
+import { readUsage } from './usage';
 import { filterProjectsForWorkspace } from './visibility';
 import type { Locale } from './i18n';
 import type { FinishedAgentSettings, ProjectNode, StateMessage } from './types';
@@ -12,6 +13,11 @@ export interface StateOptions {
   locale: Locale;
   /** Dossiers du workspace : s'ils sont fournis, seuls leurs projets sont gardés (filtre « projet courant »). */
   workspaceFolders?: string[];
+  /** Dossiers dont les sessions restent affichées au-delà de la rétention d'inactivité (transmis tels quels à la vue). */
+  pinnedFolders?: string[];
+  /** Card des limites du forfait : lue seulement si activée, dans le fichier tenu par un outil tiers. */
+  showUsage?: boolean;
+  usageFile?: string;
   log?: (message: string) => void;
   isPidAlive?: (pid: number) => boolean;
 }
@@ -31,6 +37,8 @@ export function buildState(options: StateOptions): StateMessage {
   annotateUrlLiveness(kept);
   return {
     projects: kept,
+    ...usageOf(options),
+    ...(options.pinnedFolders !== undefined ? { pinnedFolders: options.pinnedFolders } : {}),
     effortLevel: readEffortLevel(options.claudeDir),
     settings: options.settings,
     inactiveSessionRetentionMinutes: options.inactiveSessionRetentionMinutes,
@@ -63,4 +71,16 @@ function annotateUrlLiveness(projects: ProjectNode[]): void {
       }
     }
   }
+}
+
+/**
+ * Limites du forfait, quand la fonction est activée. Le chemin voyage même sans données,
+ * pour que la card d'aide puisse dire quel fichier elle attend.
+ */
+function usageOf(options: StateOptions): Pick<StateMessage, 'usage' | 'usageFile'> {
+  if (options.showUsage !== true) {
+    return {};
+  }
+  const file = options.usageFile ?? '';
+  return { usageFile: file, usage: readUsage(file) };
 }

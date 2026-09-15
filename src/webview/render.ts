@@ -1,11 +1,13 @@
 import type { AgentNode, FinishedAgentSettings, ProjectNode, SessionNode, WorkflowNode } from '../types';
-import { filterVisibleAgents, visibleSessionViews, type SessionView } from '../visibility';
+import { filterVisibleAgents, isInFolders, visibleSessionViews, type SessionPin, type SessionView } from '../visibility';
 import { abbreviateModel, contextLimitFor, formatDuration, formatTokens, modelFamily } from '../format';
 import { STRINGS, type Locale } from '../i18n';
 import {
   activityVerb,
   agentDescription,
+  agentFigures,
   agentLabel,
+  agentTokens,
   backgroundTaskTitle,
   squareTitle,
   workflowDescription,
@@ -14,6 +16,7 @@ import {
 
 export interface RenderOptions {
   now: number;
+  /** Effort global des réglages, en repli quand la session ne porte pas le sien. */
   effortLevel?: string;
   settings: FinishedAgentSettings;
   /** Minutes avant masquage d'une session inactive (0 = toujours afficher). */
@@ -21,6 +24,10 @@ export interface RenderOptions {
   locale?: Locale;
   /** Ids des workflows dont le détail est déplié (état tenu par la webview). */
   expandedWorkflows?: ReadonlySet<string>;
+  /** Ids des sessions dont la carte des agents est dépliée (état tenu par la webview). */
+  expandedMaps?: ReadonlySet<string>;
+  /** Dossiers du workspace : leurs sessions restent en card complète au-delà de la rétention. */
+  pinnedFolders?: string[];
 }
 
 const DEFAULT_SESSION_RETENTION_MINUTES = 10;
@@ -36,8 +43,11 @@ export function escapeHtml(text: string): string {
 
 export function renderApp(projects: ProjectNode[], options: RenderOptions): string {
   const retention = options.inactiveSessionRetentionMinutes ?? DEFAULT_SESSION_RETENTION_MINUTES;
+  const pinned = options.pinnedFolders ?? [];
+  const isPinned: SessionPin | undefined =
+    pinned.length > 0 ? (session) => isInFolders(session.cwd, pinned) : undefined;
   const visible = projects
-    .map((project) => ({ project, views: visibleSessionViews(project.sessions, retention, options.now) }))
+    .map((project) => ({ project, views: visibleSessionViews(project.sessions, retention, options.now, isPinned) }))
     .filter(({ views }) => views.length > 0);
   if (visible.length === 0) {
     return `<p class="empty">${escapeHtml(STRINGS[options.locale ?? 'fr'].empty)}</p>`;
@@ -57,7 +67,9 @@ function renderProject(project: ProjectNode, views: SessionView[], options: Rend
 function renderSessionCard(session: SessionNode, options: RenderOptions): string {
   const locale = options.locale ?? 'fr';
   const dot = `<span class="dot${session.active ? ' active' : ''}"></span>`;
-  const meta = [options.effortLevel, formatDuration(options.now - session.startedAt), sessionVerb(session, locale)]
+  // L'effort de la session (transcript) prime sur l'effort global des réglages, qui ne vaut qu'à défaut.
+  const effort = session.effort ?? options.effortLevel;
+  const meta = [effort, formatDuration(options.now - session.startedAt), sessionVerb(session, locale)]
     .filter(Boolean)
     .join(' · ');
   const modelBadge = session.model
@@ -69,17 +81,139 @@ function renderSessionCard(session: SessionNode, options: RenderOptions): string
   const question = session.pendingQuestion
     ? `<div class="question" title="${escapeHtml(questionText)}">⏳ ${escapeHtml(questionText)}</div>`
     : '';
+  const mapOpen = options.expandedMaps?.has(session.sessionId) ?? false;
   return [
     `<article class="${cardClass}" data-key="sess:${escapeHtml(session.sessionId)}">`,
     `<header>${dot}<h3 title="${escapeHtml(session.name)}">${escapeHtml(session.name)}</h3><span class="timer">${escapeHtml(sessionActivityTimer(session, options.now))}</span></header>`,
-    `<div class="meta">${modelBadge}${branch}<span class="meta-text">${escapeHtml(meta)}</span></div>`,
+    `<div class="meta">${modelBadge}${branch}${renderCacheIndicator(session, options.now, locale)}${renderAgentsPill(session, locale)}<span class="meta-text">${escapeHtml(meta)}</span></div>`,
     question,
     renderBackgroundTasks(session, options),
-    renderAgents(session, options),
+    mapOpen ? renderAgentMap(session, options) : renderAgents(session, options),
     renderTodos(session),
     renderContext(session, options.locale ?? 'fr'),
     '</article>',
   ].join('');
+}
+
+/**
+ * Cache d'invite, avec la règle de Claude Code : chaud tant que dernier message + TTL dépasse l'instant du rendu
+ * (minutes restantes affichées, recalculées à chaque rendu), sinon « probablement expiré » ; une compaction
+ * postérieure au dernier message rend le cache sans effet. Rien quand le transcript ne permet pas de conclure.
+ */
+function renderCacheIndicator(session: SessionNode, now: number, locale: Locale): string {
+  const cache = session.cache;
+  if (cache === undefined) {
+    return '';
+  }
+  const strings = STRINGS[locale];
+  if (cache.compactedAt !== undefined) {
+    return `<span class="cache compacted" title="${escapeHtml(strings.cacheCompacted)}">⏱</span>`;
+  }
+  const remaining = cache.anchorAt + cache.ttlMs - now;
+  if (remaining > 0) {
+    const minutes = Math.ceil(remaining / 60_000);
+    return `<span class="cache warm" title="${escapeHtml(strings.cacheWarm(minutes))}">⏱ ${minutes} min</span>`;
+  }
+  return `<span class="cache cold" title="${escapeHtml(strings.cacheCold(formatDuration(now - cache.anchorAt)))}">⏱</span>`;
+}
+
+/** Tous les agents de la session, sous-agents directs et agents de workflow, terminés compris. */
+function allAgents(session: SessionNode): AgentNode[] {
+  return [...session.agents, ...session.workflows.flatMap((workflow) => workflow.agents)];
+}
+
+/** « 5 agents · 2 en cours · 2 terminés · 1 en échec » : les comptes nuls sont tus. */
+function agentCounts(session: SessionNode, locale: Locale): string {
+  const strings = STRINGS[locale];
+  const agents = allAgents(session);
+  const running = agents.filter((agent) => agent.status === 'active').length;
+  const finished = agents.filter((agent) => agent.status === 'finished').length;
+  const failed = agents.filter((agent) => agent.status === 'failed').length;
+  const parts = [strings.agentCount(agents.length)];
+  if (running > 0) {
+    parts.push(strings.running(running));
+  }
+  if (finished > 0) {
+    parts.push(strings.finishedCount(finished));
+  }
+  if (failed > 0) {
+    parts.push(strings.failedCount(failed));
+  }
+  return parts.join(' · ');
+}
+
+/** Pastille « N agents » de la ligne méta : compte tous les agents de la session et ouvre la carte au clic. */
+function renderAgentsPill(session: SessionNode, locale: Locale): string {
+  const total = allAgents(session).length;
+  if (total === 0) {
+    return '';
+  }
+  return `<span class="agents-pill" role="button" title="${escapeHtml(agentCounts(session, locale))}">${escapeHtml(STRINGS[locale].agentCount(total))}</span>`;
+}
+
+/**
+ * Carte des agents : l'équivalent en lecture seule de celle de Claude Code. Tous les agents de la session,
+ * terminés compris et hors rétention, en arbre par filiation ; chaque ligne porte durée et jetons — ceux écrits
+ * par Claude Code pour un agent terminé, le temps écoulé et le contexte courant pour un agent qui tourne.
+ * Les workflows y forment un groupe avec leur compteur. Remplace la liste habituelle tant qu'elle est dépliée.
+ */
+function renderAgentMap(session: SessionNode, options: RenderOptions): string {
+  const locale = options.locale ?? 'fr';
+  const direct = session.agents.map((agent) => renderMapRow(agent, options)).join('');
+  const workflows = session.workflows
+    .map((workflow) =>
+      [
+        `<li class="map-wf" data-key="mw:${escapeHtml(workflow.id)}">`,
+        `<div class="map-wf-head"><span class="wf-label">${escapeHtml(workflowLabel(workflow))}</span><span class="map-meta">${escapeHtml(workflowDescription(workflow, locale))}</span></div>`,
+        `<ul>${workflow.agents.map((agent, index) => renderMapRow(agent, options, index + 1)).join('')}</ul>`,
+        '</li>',
+      ].join(''),
+    )
+    .join('');
+  return [
+    '<div class="agent-map">',
+    `<div class="map-head"><span class="map-title">${escapeHtml(agentCounts(session, locale))}</span><span class="map-close" role="button" title="${escapeHtml(STRINGS[locale].mapClose)}">✕</span></div>`,
+    `<ul class="map-tree">${direct}${workflows}</ul>`,
+    '</div>',
+  ].join('');
+}
+
+/** Une ligne de la carte : picto de statut, rang dans son workflow, libellé (prompt, modèle et outils en infobulle), durée · jetons. */
+function renderMapRow(agent: AgentNode, options: RenderOptions, ordinal?: number): string {
+  const locale = options.locale ?? 'fr';
+  const label = agentLabel(agent);
+  const facts = [
+    agent.model ? abbreviateModel(agent.model) : undefined,
+    agent.report ? STRINGS[locale].toolUses(agent.report.toolUses) : undefined,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const tooltip = labelTooltip(agent, label, facts);
+  const index = ordinal === undefined ? '' : `<span class="agent-idx">#${ordinal}</span>`;
+  const depthClass = agent.depth ? ` depth-${Math.min(agent.depth, 3)}` : '';
+  return [
+    `<li class="map-agent ${squareClass(agent.status)}${depthClass}" data-key="ma:${escapeHtml(agent.id)}">`,
+    statusIcon(agent.status, agent.failure),
+    index,
+    `<span class="map-label" title="${tooltip}">${escapeHtml(label)}</span>`,
+    `<span class="map-meta">${escapeHtml(agentFigures(agent, options.now, locale))}</span>`,
+    '</li>',
+  ].join('');
+}
+
+/** Pastille pulsée en cours, ✗ en échec (la raison lue sur le disque en infobulle), ✓ terminé. */
+function statusIcon(status: AgentNode['status'], failure?: string): string {
+  return status === 'active'
+    ? '<span class="dot active"></span>'
+    : status === 'failed'
+      ? `<span class="cross"${failure ? ` title="${escapeHtml(failure)}"` : ''}>✗</span>`
+      : '<span class="check">✓</span>';
+}
+
+/** Infobulle d'un libellé d'agent : prompt (ou libellé), faits optionnels, puis la raison d'échec sur sa propre ligne. */
+function labelTooltip(agent: AgentNode, label: string, ...facts: Array<string | undefined>): string {
+  const lines = [agent.detail ?? label, ...facts, agent.failure ? `✗ ${agent.failure}` : undefined];
+  return escapeHtml(lines.filter(Boolean).join('\n')).replaceAll('\n', '&#10;');
 }
 
 /** Verbe de l'agent principal : phase déduite du transcript si connue, sinon dernier outil d'une session active. */
@@ -292,7 +426,7 @@ function renderWorkflowDetail(workflow: WorkflowNode, options: RenderOptions): s
       return [
         `<tr class="wf-agent ${squareClass(agent.status)}" data-key="wa:${escapeHtml(agent.id)}">`,
         `<td class="wf-n">#${index + 1}</td>`,
-        `<td class="wf-name" title="${escapeHtml(agent.detail ?? label)}">${escapeHtml(label)}</td>`,
+        `<td class="wf-name" title="${labelTooltip(agent, label)}">${escapeHtml(label)}</td>`,
         `<td class="wf-model">${escapeHtml(agent.model ? abbreviateModel(agent.model) : '')}</td>`,
         `<td class="wf-num">${agent.contextTokens !== undefined ? escapeHtml(formatTokens(agent.contextTokens, locale)) : ''}</td>`,
         `<td class="wf-num">${escapeHtml(formatDuration(end - agent.createdAt))}</td>`,
@@ -306,14 +440,10 @@ function renderWorkflowDetail(workflow: WorkflowNode, options: RenderOptions): s
 /** Ligne d'un agent ; `ordinal` = rang dans son workflow (absent pour un sous-agent direct). */
 function renderAgentLine(agent: AgentNode, options: RenderOptions, ordinal?: number): string {
   const locale = options.locale ?? 'fr';
-  const context = agent.contextTokens !== undefined ? ` · ${formatTokens(agent.contextTokens, locale)}` : '';
+  const tokens = agentTokens(agent);
+  const context = tokens !== undefined ? ` · ${formatTokens(tokens, locale)}` : '';
   const index = ordinal === undefined ? '' : `<span class="agent-idx">#${ordinal}</span>`;
-  const icon =
-    agent.status === 'active'
-      ? '<span class="dot active"></span>'
-      : agent.status === 'failed'
-        ? '<span class="cross">✗</span>'
-        : '<span class="check">✓</span>';
+  const icon = statusIcon(agent.status, agent.failure);
   const gauge =
     agent.status !== 'active' && options.settings.mode === 'temporarily'
       ? renderRetentionGauge(agent.lastActivity, options)
@@ -333,7 +463,7 @@ function renderAgentLine(agent: AgentNode, options: RenderOptions, ordinal?: num
     icon,
     index,
     left,
-    `<span class="agent-label" title="${escapeHtml(agent.detail ?? label)}">${escapeHtml(label)}</span>`,
+    `<span class="agent-label" title="${labelTooltip(agent, label)}">${escapeHtml(label)}</span>`,
     `<span class="agent-desc">${escapeHtml(agentDescription(agent, options.now, locale) + context)}</span>`,
     gauge,
     '</li>',

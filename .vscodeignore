@@ -7,9 +7,14 @@ docs/**
 esbuild.mjs
 dist/dev-server.js
 dist/dev-server.js.map
+dist/write-ring-font.js
 vitest.config.ts
 tsconfig.json
 *.vsix
 .mcp.json
 CLAUDE.md
 persona.md
+**/desktop.ini
+assets/screen-*.png
+assets/panel.png
+assets/settings.png

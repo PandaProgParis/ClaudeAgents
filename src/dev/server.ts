@@ -17,6 +17,10 @@ export interface StateQuery {
   settings: FinishedAgentSettings;
   inactiveSessionRetentionMinutes: number;
   locale: Locale;
+  showUsage: boolean;
+  usageFile: string;
+  /** Dossiers « du workspace » simulés (?ws=, répétable) : leurs sessions restent affichées. */
+  pinnedFolders?: string[];
 }
 
 export interface DevServerOptions {
@@ -36,9 +40,10 @@ function nonNegative(params: URLSearchParams, key: string, fallback: number): nu
   return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
-/** Réglages de rendu lus dans l'URL (?mode=&retention=&inactive=&locale=), avec les défauts de l'extension. */
+/** Réglages de rendu lus dans l'URL (?mode=&retention=&inactive=&locale=&ws=), avec les défauts de l'extension. */
 export function parseStateQuery(params: URLSearchParams): StateQuery {
   const mode = params.get('mode');
+  const pinned = params.getAll('ws').filter((folder) => folder.trim() !== '');
   return {
     settings: {
       mode: mode !== null && MODES.has(mode) ? (mode as FinishedAgentSettings['mode']) : 'temporarily',
@@ -46,6 +51,9 @@ export function parseStateQuery(params: URLSearchParams): StateQuery {
     },
     inactiveSessionRetentionMinutes: nonNegative(params, 'inactive', 10),
     locale: params.get('locale') === 'en' ? 'en' : 'fr',
+    showUsage: params.get('usage') !== '0',
+    usageFile: params.get('usage') !== null && params.get('usage') !== '0' ? (params.get('usage') as string) : '',
+    ...(pinned.length > 0 ? { pinnedFolders: pinned } : {}),
   };
 }
 
@@ -158,7 +166,9 @@ body {
 #frame {
   flex: none; width: 360px; min-width: 220px; min-height: 0; box-sizing: border-box;
   padding: 2px 8px 2px 4px; overflow: auto;
+  display: flex; flex-direction: column;
 }
+#frame > #root { flex: 1 0 auto; }
 /* Le séparateur : saisissable sur toute la hauteur, pas seulement par un coin. */
 #grip {
   flex: none; width: 5px; cursor: col-resize; background: var(--vscode-widget-border);
@@ -181,7 +191,7 @@ body.dragging { user-select: none; }
 ${bar}
 </nav>
 <div id="stage">
-  <div id="frame">${rateBannerHtml(query.locale)}<div id="root"><p class="empty">…</p></div></div>
+  <div id="frame">${rateBannerHtml(query.locale)}<div id="root"><p class="empty">…</p></div><div id="usage"></div></div>
   <div id="grip" title="Glisser pour régler la largeur de la barre latérale"></div>
 </div>
 <script src="/dist/webview.js"></script>

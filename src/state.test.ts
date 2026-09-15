@@ -63,4 +63,14 @@ describe('buildState', () => {
     });
     expect(state.projects.map((project) => project.name)).toEqual(['beta']);
   });
+
+  it('transmet les dossiers épinglés tels quels, et ne les invente pas sinon', () => {
+    const dir = makeClaudeDir();
+    setupTwoProjects(dir);
+    const base = { claudeDir: dir, now: NOW, settings: SETTINGS, inactiveSessionRetentionMinutes: 10, locale: 'fr' as const, isPidAlive: alive };
+    expect(buildState({ ...base, pinnedFolders: ['c:\\dev\\beta'] }).pinnedFolders).toEqual(['c:\\dev\\beta']);
+    expect(buildState(base).pinnedFolders).toBeUndefined();
+    // Épingler ne filtre pas : les deux projets restent dans l'état.
+    expect(buildState({ ...base, pinnedFolders: ['c:\\dev\\beta'] }).projects.map((project) => project.name)).toEqual(['alpha', 'beta']);
+  });
 });

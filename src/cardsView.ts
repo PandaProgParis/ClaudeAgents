@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { rateBannerHtml } from './banner';
 import { STRINGS, resolveLocale } from './i18n';
+import { MENU_COMMAND } from './usageStatusBar';
 
 export class CardsViewProvider implements vscode.WebviewViewProvider {
   static readonly viewType = 'claudeAgentsCards';
@@ -23,6 +24,25 @@ export class CardsViewProvider implements vscode.WebviewViewProvider {
       ],
     };
     webviewView.webview.html = this.buildHtml(webviewView.webview);
+    // La webview ne peut ni écrire la configuration ni ouvrir les réglages : elle le demande.
+    webviewView.webview.onDidReceiveMessage((message: unknown) => {
+      if (typeof message !== 'object' || message === null) {
+        return;
+      }
+      const { type, setting } = message as { type?: unknown; setting?: unknown };
+      if (type === 'dismissUsage') {
+        // Croix de l'encart d'usage.
+        void vscode.workspace
+          .getConfiguration('claudeAgents')
+          .update('showUsage', false, vscode.ConfigurationTarget.Global);
+      } else if (type === 'openSetting' && typeof setting === 'string' && setting.startsWith('claudeAgents.')) {
+        // Lien de l'encart d'usage vers le réglage à renseigner : réglages filtrés sur cette clé, et rien d'autre.
+        void vscode.commands.executeCommand('workbench.action.openSettings', setting);
+      } else if (type === 'usageStatusMenu') {
+        // Picto de la card des limites : le même menu d'affichage que la flèche de la barre d'état.
+        void vscode.commands.executeCommand(MENU_COMMAND);
+      }
+    });
     webviewView.onDidChangeVisibility(() => this.visibilityEmitter.fire(webviewView.visible));
     webviewView.onDidDispose(() => {
       this.view = undefined;
@@ -76,6 +96,7 @@ export class CardsViewProvider implements vscode.WebviewViewProvider {
       '<body>',
       rateBannerHtml(locale),
       `<div id="root"><p class="empty">${STRINGS[locale].empty}</p></div>`,
+      '<div id="usage"></div>',
       `<script nonce="${nonce}" src="${scriptUri}"></script>`,
       '</body>',
       '</html>',

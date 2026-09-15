@@ -1,8 +1,8 @@
 {
   "name": "claude-agents",
-  "displayName": "Claude Agents",
-  "description": "Real-time view of the Claude Code sessions, agents and sub-agents running on your machine, across all projects. Read-only access to ~/.claude.",
-  "version": "0.8.4",
+  "displayName": "Claude Agent Map & Usage",
+  "description": "Agent map of every Claude Code session on your machine - sessions, sub-agents, workflows, prompt cache - plus your plan usage with reset countdowns in the sidebar and the status bar. Read-only access to ~/.claude.",
+  "version": "1.0.0",
   "publisher": "pandaprog",
   "license": "MIT",
   "icon": "assets/icon.png",
@@ -24,8 +24,14 @@
     "claude",
     "claude code",
     "agents",
+    "agent map",
+    "sub-agents",
+    "usage",
     "monitoring",
     "ai"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -59,19 +65,101 @@
         "title": "%command.showAllProjects%",
         "category": "Claude Agents",
         "icon": "$(filter-filled)"
+      },
+      {
+        "command": "claudeAgents.openSettings",
+        "title": "%command.openSettings%",
+        "category": "Claude Agents",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "claudeAgents.usageStatusBarMenu",
+        "title": "%command.usageStatusBarMenu%",
+        "category": "Claude Agents",
+        "icon": "$(chevron-down)"
       }
     ],
+    "icons": {
+      "claude-agents-ring-0": {
+        "description": "Claude usage ring, 0/8",
+        "default": {
+          "fontPath": "./media/usage-rings.woff",
+          "fontCharacter": "\\E000"
+        }
+      },
+      "claude-agents-ring-1": {
+        "description": "Claude usage ring, 1/8",
+        "default": {
+          "fontPath": "./media/usage-rings.woff",
+          "fontCharacter": "\\E001"
+        }
+      },
+      "claude-agents-ring-2": {
+        "description": "Claude usage ring, 2/8",
+        "default": {
+          "fontPath": "./media/usage-rings.woff",
+          "fontCharacter": "\\E002"
+        }
+      },
+      "claude-agents-ring-3": {
+        "description": "Claude usage ring, 3/8",
+        "default": {
+          "fontPath": "./media/usage-rings.woff",
+          "fontCharacter": "\\E003"
+        }
+      },
+      "claude-agents-ring-4": {
+        "description": "Claude usage ring, 4/8",
+        "default": {
+          "fontPath": "./media/usage-rings.woff",
+          "fontCharacter": "\\E004"
+        }
+      },
+      "claude-agents-ring-5": {
+        "description": "Claude usage ring, 5/8",
+        "default": {
+          "fontPath": "./media/usage-rings.woff",
+          "fontCharacter": "\\E005"
+        }
+      },
+      "claude-agents-ring-6": {
+        "description": "Claude usage ring, 6/8",
+        "default": {
+          "fontPath": "./media/usage-rings.woff",
+          "fontCharacter": "\\E006"
+        }
+      },
+      "claude-agents-ring-7": {
+        "description": "Claude usage ring, 7/8",
+        "default": {
+          "fontPath": "./media/usage-rings.woff",
+          "fontCharacter": "\\E007"
+        }
+      },
+      "claude-agents-ring-8": {
+        "description": "Claude usage ring, 8/8",
+        "default": {
+          "fontPath": "./media/usage-rings.woff",
+          "fontCharacter": "\\E008"
+        }
+      }
+    },
     "menus": {
       "view/title": [
         {
           "command": "claudeAgents.focusCurrentProject",
           "when": "view == claudeAgentsCards && !claudeAgents.currentProjectOnly",
-          "group": "navigation"
+          "group": "navigation@1"
         },
         {
           "command": "claudeAgents.showAllProjects",
           "when": "view == claudeAgentsCards && claudeAgents.currentProjectOnly",
-          "group": "navigation"
+          "group": "navigation@1"
+        },
+        {
+          "command": "claudeAgents.openSettings",
+          "when": "view == claudeAgentsCards",
+          "group": "navigation@2"
         }
       ]
     },
@@ -99,6 +187,45 @@
           "default": 10,
           "minimum": 0,
           "markdownDescription": "%config.inactiveSessionRetentionMinutes%"
+        },
+        "claudeAgents.alwaysShowWorkspaceSessions": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "%config.alwaysShowWorkspaceSessions%"
+        },
+        "claudeAgents.showUsage": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.showUsage%"
+        },
+        "claudeAgents.usageFile": {
+          "type": "string",
+          "default": "",
+          "description": "%config.usageFile%"
+        },
+        "claudeAgents.usageStatusBar": {
+          "type": "string",
+          "enum": [
+            "text",
+            "rings",
+            "off"
+          ],
+          "enumDescriptions": [
+            "%config.usageStatusBar.text%",
+            "%config.usageStatusBar.rings%",
+            "%config.usageStatusBar.off%"
+          ],
+          "default": "text",
+          "markdownDescription": "%config.usageStatusBar%"
+        },
+        "claudeAgents.usageStatusBarSide": {
+          "type": "string",
+          "enum": [
+            "right",
+            "left"
+          ],
+          "default": "right",
+          "markdownDescription": "%config.usageStatusBarSide%"
         }
       }
     }
@@ -108,6 +235,7 @@
     "watch": "node esbuild.mjs --watch",
     "dev": "node esbuild.mjs --dev",
     "typecheck": "tsc --noEmit",
+    "font": "esbuild src/font/writeRingFont.ts --bundle --platform=node --outfile=dist/write-ring-font.js --log-level=warning && node dist/write-ring-font.js",
     "test": "vitest run",
     "vscode:prepublish": "npm run build",
     "package": "npm run typecheck && npm run test && vsce package"

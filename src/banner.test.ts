@@ -15,6 +15,16 @@ describe('ratePool', () => {
     expect(STRINGS.en.rateGreeting(14)).toBe('Good afternoon 👋');
     expect(STRINGS.en.rateGreeting(21)).toBe('Good evening 🌙');
   });
+
+  it('offre autant de phrases en français qu’en anglais, toutes différentes et courtes', () => {
+    expect(STRINGS.fr.ratePhrases).toHaveLength(STRINGS.en.ratePhrases.length);
+    for (const phrases of [STRINGS.fr.ratePhrases, STRINGS.en.ratePhrases]) {
+      expect(new Set(phrases).size).toBe(phrases.length);
+      for (const phrase of phrases) {
+        expect(phrase.length).toBeLessThanOrEqual(40);
+      }
+    }
+  });
 });
 
 describe('pickPhrase', () => {

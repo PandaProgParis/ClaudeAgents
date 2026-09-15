@@ -155,13 +155,29 @@ export function writeAgent(
   return filePath;
 }
 
-/** Ligne JSONL assistant portant model + usage (pour contextTokens). */
+/**
+ * Ligne JSONL assistant portant model + usage (pour contextTokens). `ephemeral` ventile cache_creation
+ * comme l'API (`ephemeral_5m_input_tokens` / `ephemeral_1h_input_tokens`) ; `effort` = champ racine des
+ * lignes assistant depuis Claude Code 2.1.270 ; `timestamp` date la ligne.
+ */
 export function assistantUsageLine(
   model: string,
   usage: { input: number; cacheRead: number; cacheCreation: number },
+  extra: { ephemeral?: '5m' | '1h'; effort?: string; timestamp?: number } = {},
 ): string {
+  const cacheCreation =
+    extra.ephemeral === undefined
+      ? {}
+      : {
+          cache_creation: {
+            ephemeral_5m_input_tokens: extra.ephemeral === '5m' ? usage.cacheCreation : 0,
+            ephemeral_1h_input_tokens: extra.ephemeral === '1h' ? usage.cacheCreation : 0,
+          },
+        };
   return JSON.stringify({
     type: 'assistant',
+    ...(extra.timestamp !== undefined ? { timestamp: new Date(extra.timestamp).toISOString() } : {}),
+    ...(extra.effort !== undefined ? { effort: extra.effort } : {}),
     message: {
       role: 'assistant',
       model,
@@ -171,7 +187,105 @@ export function assistantUsageLine(
         cache_read_input_tokens: usage.cacheRead,
         cache_creation_input_tokens: usage.cacheCreation,
         output_tokens: 42,
+        ...cacheCreation,
       },
+    },
+  });
+}
+
+/**
+ * Ligne assistant synthétique que Claude Code écrit quand l'API refuse la requête (limite d'usage, 429…) :
+ * modèle « <synthetic> », texte lisible dans le message, et à la racine error / isApiErrorMessage / apiErrorStatus.
+ */
+export function apiErrorLine(text: string, timestamp: number, error = 'rate_limit', status = 429): string {
+  return JSON.stringify({
+    type: 'assistant',
+    timestamp: new Date(timestamp).toISOString(),
+    message: {
+      role: 'assistant',
+      model: '<synthetic>',
+      stop_reason: 'stop_sequence',
+      content: [{ type: 'text', text }],
+      usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    },
+    error,
+    isApiErrorMessage: true,
+    apiErrorStatus: status,
+  });
+}
+
+/** Ligne system écrite par Claude Code quand il compacte la conversation. */
+export function compactBoundaryLine(timestamp: number): string {
+  return JSON.stringify({
+    type: 'system',
+    subtype: 'compact_boundary',
+    content: 'Conversation compacted',
+    level: 'info',
+    timestamp: new Date(timestamp).toISOString(),
+    compactMetadata: { trigger: 'auto', preTokens: 490_214, postTokens: 22_230 },
+  });
+}
+
+/** Bloc <usage> que Claude Code écrit à la fin d'un sous-agent (notification de fin ou fin du tool_result). */
+function usageBlock(figures: { tokens: number; toolUses: number; durationMs: number }): string {
+  return `<usage><subagent_tokens>${figures.tokens}</subagent_tokens><tool_uses>${figures.toolUses}</tool_uses><duration_ms>${figures.durationMs}</duration_ms></usage>`;
+}
+
+/**
+ * Notification de fin d'un sous-agent lancé en arrière-plan, telle que Claude Code l'écrit : task-id = agentId,
+ * résultat, puis le bloc <usage>. Enfilée (queue-operation) puis livrée à l'agent (ligne user).
+ */
+export function agentNotificationLine(
+  agentId: string,
+  status: 'completed' | 'failed' | 'killed',
+  figures: { tokens: number; toolUses: number; durationMs: number },
+  timestamp: number,
+  kind: 'queue' | 'user' = 'user',
+): string {
+  const content = [
+    '<task-notification>',
+    `<task-id>${agentId}</task-id>`,
+    '<tool-use-id>toolu_agent</tool-use-id>',
+    `<output-file>C:\\tmp\\tasks\\${agentId}.output</output-file>`,
+    `<status>${status}</status>`,
+    `<summary>Agent "x" finished</summary>`,
+    '<result>Rapport de l’agent. agentId: ne-pas-confondre</result>',
+    usageBlock(figures),
+    '</task-notification>',
+  ].join('\n');
+  const iso = new Date(timestamp).toISOString();
+  return kind === 'queue'
+    ? JSON.stringify({ type: 'queue-operation', operation: 'enqueue', timestamp: iso, content })
+    : JSON.stringify({ type: 'user', timestamp: iso, message: { role: 'user', content } });
+}
+
+/**
+ * tool_result d'un sous-agent exécuté au premier plan, tel que Claude Code 2.1.270 l'écrit : le rapport dans un
+ * premier bloc texte, puis un second bloc « agentId: X (…) » suivi d'un <usage> en clés/valeurs sur trois lignes
+ * (forme différente de celle, en balises, des notifications de fin).
+ */
+export function agentResultLine(
+  toolUseId: string,
+  agentId: string,
+  figures: { tokens: number; toolUses: number; durationMs: number },
+  timestamp: number,
+): string {
+  const trailer = `agentId: ${agentId} (use SendMessage with to: '${agentId}', summary: '<5-10 word recap>' to continue this agent)\n<usage>subagent_tokens: ${figures.tokens}\ntool_uses: ${figures.toolUses}\nduration_ms: ${figures.durationMs}</usage>`;
+  return JSON.stringify({
+    type: 'user',
+    timestamp: new Date(timestamp).toISOString(),
+    message: {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: toolUseId,
+          content: [
+            { type: 'text', text: 'Rapport de l’agent. Il cite agentId: pas-celui-la pour brouiller les pistes.' },
+            { type: 'text', text: trailer },
+          ],
+        },
+      ],
     },
   });
 }

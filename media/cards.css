@@ -122,9 +122,12 @@ body {
   50% { opacity: 0.4; }
 }
 
+/* Badges à gauche, texte à droite ; la ligne se replie proprement quand la card est étroite (branche, cache, pastille). */
 .meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
+  row-gap: 1px;
   color: var(--vscode-descriptionForeground);
   font-size: 10px;
   margin-top: 1px;
@@ -159,6 +162,7 @@ body {
   color: var(--vscode-gitDecoration-modifiedResourceForeground, var(--vscode-charts-blue, #75beff));
   margin-right: 5px;
   font-size: 9px;
+  white-space: nowrap;
 }
 
 .agent-type {
@@ -577,17 +581,218 @@ body {
   flex-direction: row-reverse;
 }
 
+/* Cinq étoiles allumées au repos. */
 #rate .star {
   padding: 0 1px;
   font-size: 1.15em;
   line-height: 1;
   text-decoration: none;
+  color: #f5b301;
+}
+
+/* Au survol, seules les étoiles jusqu'à la survolée restent dorées : on lit la note que l'on s'apprête à donner.
+   Les sélecteurs dorés passent par `.stars` pour peser au moins autant que la mise en gris (1 id, 3 classes) :
+   `#rate .star:hover` seul perdait et laissait la survolée grise (5e survolée → 4 dorées). */
+#rate .stars:hover .star {
   color: var(--vscode-tree-inactiveIndentGuidesStroke);
 }
 
-#rate .star:hover,
-#rate .star:hover ~ .star {
+#rate .stars .star:hover,
+#rate .stars .star:hover ~ .star {
   color: #f5b301;
+}
+
+/*
+ * Scintillement à chaque nouvelle phrase (main.ts pose .sparkle, sparkle.ts la retire à la fin) : les étoiles
+ * s'allument une par une, deux passes de 1,2 s. Écrites de 5 à 1 dans le DOM, la première affichée est nth-child(5).
+ */
+#rate .stars.sparkle .star {
+  animation: sparkle-5 1.2s step-end 2;
+}
+
+#rate .stars.sparkle .star:nth-child(5) {
+  animation-name: sparkle-1;
+}
+
+#rate .stars.sparkle .star:nth-child(4) {
+  animation-name: sparkle-2;
+}
+
+#rate .stars.sparkle .star:nth-child(3) {
+  animation-name: sparkle-3;
+}
+
+#rate .stars.sparkle .star:nth-child(2) {
+  animation-name: sparkle-4;
+}
+
+@keyframes sparkle-1 {
+  0% { color: var(--vscode-tree-inactiveIndentGuidesStroke); }
+  4%, 100% { color: #f5b301; }
+}
+
+@keyframes sparkle-2 {
+  0%, 19% { color: var(--vscode-tree-inactiveIndentGuidesStroke); }
+  20%, 100% { color: #f5b301; }
+}
+
+@keyframes sparkle-3 {
+  0%, 39% { color: var(--vscode-tree-inactiveIndentGuidesStroke); }
+  40%, 100% { color: #f5b301; }
+}
+
+@keyframes sparkle-4 {
+  0%, 59% { color: var(--vscode-tree-inactiveIndentGuidesStroke); }
+  60%, 100% { color: #f5b301; }
+}
+
+@keyframes sparkle-5 {
+  0%, 79% { color: var(--vscode-tree-inactiveIndentGuidesStroke); }
+  80%, 100% { color: #f5b301; }
+}
+
+/* Cache d'invite (règle de Claude Code) : chaud avec les minutes restantes, sinon horloge seule, atténuée. */
+.cache {
+  flex: none;
+  margin-right: 5px;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--vscode-descriptionForeground);
+  cursor: help;
+}
+
+.cache.warm {
+  color: var(--vscode-charts-green, #89d185);
+}
+
+.cache.cold,
+.cache.compacted {
+  opacity: 0.6;
+}
+
+/* Pastille « N agents » : compte tous les agents de la session et ouvre la carte des agents au clic. */
+.agents-pill {
+  flex: none;
+  margin-right: 5px;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 9px;
+  white-space: nowrap;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  cursor: pointer;
+}
+
+.agents-pill:hover {
+  filter: brightness(1.15);
+}
+
+/* Carte des agents : tous les agents de la session, terminés compris, en arbre ; remplace la liste habituelle. */
+.agent-map {
+  margin-top: 4px;
+  padding-top: 3px;
+  border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+}
+
+.map-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 9px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.map-close {
+  margin-left: auto;
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0.7;
+  cursor: pointer;
+}
+
+.map-close:hover {
+  opacity: 1;
+  color: var(--vscode-foreground);
+}
+
+.map-tree,
+.map-wf > ul {
+  list-style: none;
+  margin: 2px 0 0 2px;
+  padding-left: 12px;
+  border-left: 1px solid var(--vscode-tree-inactiveIndentGuidesStroke, rgba(128, 128, 128, 0.35));
+}
+
+.map-tree > li,
+.map-wf > ul > li {
+  position: relative;
+}
+
+.map-tree > li::before,
+.map-wf > ul > li::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 0.75em;
+  width: 9px;
+  height: 1px;
+  background: var(--vscode-tree-inactiveIndentGuidesStroke, rgba(128, 128, 128, 0.35));
+}
+
+.map-agent {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 1px 0;
+  font-size: 11px;
+}
+
+.map-agent > .dot,
+.map-agent > .check,
+.map-agent > .cross,
+.map-agent > .agent-idx,
+.map-agent > .map-meta {
+  margin-top: 2px;
+}
+
+.map-agent.depth-1 { margin-left: 14px; }
+.map-agent.depth-2 { margin-left: 28px; }
+.map-agent.depth-3 { margin-left: 42px; }
+
+.map-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-agent.done .map-label {
+  opacity: 0.7;
+}
+
+.map-agent.failed .map-label {
+  color: var(--vscode-charts-red, #f14c4c);
+}
+
+.map-meta {
+  flex: none;
+  margin-left: auto;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  color: var(--vscode-descriptionForeground);
+}
+
+.map-wf {
+  display: block;
+  font-size: 11px;
+}
+
+.map-wf-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
 }
 
 /* Session au-delà de la rétention, gardée pour ses seuls serveurs encore vivants : un résidu discret. */
@@ -604,4 +809,272 @@ body {
 
 .card.collapsed .dot {
   background: var(--vscode-tree-inactiveIndentGuidesStroke, rgba(128, 128, 128, 0.5));
+}
+
+/* --- Limites du forfait, ancrées en bas de la vue (jauges reprises du plugin Chrome ClaudeCockpit) --- */
+/* Le body devient une colonne : #root prend la place restante, #usage tombe en bas même avec peu de sessions. */
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+#root {
+  flex: 1 0 auto;
+}
+
+#usage {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: var(--vscode-sideBar-background);
+}
+
+.usage {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px 7px 6px;
+  margin-top: 6px;
+  border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+  border-radius: 8px;
+  background: var(--vscode-editorWidget-background);
+}
+
+.usage-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.usage-title {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Une jauge = libellé + reset au-dessus, barre + valeur en dessous, resserré pour la barre latérale. */
+.gauge {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.gauge-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.gauge-label {
+  font-size: 10px;
+  color: var(--vscode-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gauge-reset {
+  flex: none;
+  font-size: 9px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.gauge-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gauge-track {
+  flex: 1;
+  display: block;
+  height: 5px;
+}
+
+.gauge-bg {
+  fill: var(--vscode-tree-inactiveIndentGuidesStroke, rgba(128, 128, 128, 0.3));
+  opacity: 0.45;
+}
+
+.gauge-value {
+  flex: none;
+  min-width: 26px;
+  text-align: right;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Fraîcheur du fichier, à côté du titre : discrète tant qu'il est écrit régulièrement, alertée quand il a vieilli. */
+.usage-age {
+  font-size: 9px;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.usage-age.stale {
+  color: var(--vscode-charts-orange, #d18616);
+  font-weight: 600;
+}
+
+/* Pas de fichier lisible : on dit quoi faire au lieu de disparaître. Tout est centré, et une croix
+   en haut à droite permet de renoncer à la fonction sans passer par les réglages. */
+.usage-help {
+  position: relative;
+  border-style: dashed;
+  background: transparent;
+  align-items: center;
+  text-align: center;
+  padding-top: 4px;
+}
+
+.usage-help .usage-head {
+  justify-content: center;
+}
+
+.usage-close {
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  padding: 0 3px;
+  border: 0;
+  background: none;
+  color: var(--vscode-descriptionForeground);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.usage-close:hover {
+  opacity: 1;
+  color: var(--vscode-foreground);
+}
+
+/* Pictos de la card de jauges : flèche réduire-déplier, ⚙ réglages, poussés à droite de l'en-tête. */
+.usage-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 1px;
+}
+
+.usage-btn {
+  padding: 0 3px;
+  border: 0;
+  background: none;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.usage-btn:hover {
+  opacity: 1;
+  color: var(--vscode-foreground);
+}
+
+/* La flèche réduire/déplier est la cible qu'on cherche du regard : un triangle SVG de 13 px, plus grand que
+   le ⚙, tourné vers la droite quand la card est réduite. */
+.usage-collapse {
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+}
+
+.usage-arrow {
+  display: block;
+  width: 13px;
+  height: 13px;
+  fill: currentColor;
+}
+
+/* Picto du menu d'affichage : fenêtre et barre d'état, calé sur la hauteur du ⚙. */
+.usage-display {
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+}
+
+.usage-display-icon {
+  display: block;
+  width: 12px;
+  height: 12px;
+}
+
+.usage.collapsed .usage-arrow {
+  transform: rotate(180deg);
+}
+
+/* Card réduite : l'en-tête seul, sans titre, les jauges 5h et hebdo côte à côte à la place de l'âge. */
+.usage.collapsed {
+  gap: 0;
+  padding: 4px 7px;
+}
+
+.usage.collapsed .usage-head {
+  align-items: center;
+}
+
+.usage-compact {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.gauge-compact {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.gauge-short {
+  flex: none;
+  font-size: 9px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Lien vers l'outil qui écrit le fichier, sous l'indication de la card d'aide. */
+.usage-repo {
+  font-size: 9px;
+  color: var(--vscode-textLink-foreground);
+  text-decoration: none;
+}
+
+.usage-repo:hover {
+  text-decoration: underline;
+}
+
+.usage-hint {
+  margin: 0;
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.usage-path {
+  font-size: 9px;
+  color: var(--vscode-textLink-foreground);
+  word-break: break-all;
+}
+
+/* Indication cliquable qui ouvre les réglages sur claudeAgents.usageFile. */
+.usage-settings {
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+
+.usage-settings:hover {
+  color: var(--vscode-textLink-activeForeground);
+  text-decoration: underline;
 }

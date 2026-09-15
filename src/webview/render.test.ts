@@ -351,9 +351,11 @@ describe('renderApp', () => {
       [project([session({ active: false, lastActivity: NOW - 60_000, agents: [agent(), agent({ id: 'agent-bbb', status: 'finished', lastActivity: NOW - 30_000 })] })])],
       { now: NOW, settings: SETTINGS },
     );
-    expect(html).not.toContain('actif');
-    expect(html).not.toContain('terminé');
-    expect(html).not.toContain('inactive ');
+    // Les comptes par statut n'existent qu'en infobulle de la pastille « N agents », jamais en texte visible.
+    const visible = html.replace(/ title="[^"]*"/g, '');
+    expect(visible).not.toContain('actif');
+    expect(visible).not.toContain('terminé');
+    expect(visible).not.toContain('inactive ');
   });
 
   it('ancre la jauge de rétention à droite, après le compteur de tokens', () => {
@@ -629,12 +631,13 @@ describe('renderApp — infobulle des agents de workflow', () => {
     const workflow = { id: 'wf_t', agents: [detailed], totalCount: 1, finishedCount: 0 };
     const projects = [project([session({ workflows: [workflow] })])];
     const collapsed = renderApp(projects, { now: NOW, settings: SETTINGS });
+    // Le saut de ligne est écrit &#10; : même rendu dans l'infobulle, et lisible dans le HTML.
     expect(collapsed).toContain(
-      '<span class="agent-label" title="Tu es RÉFUTATEUR — lentille CORRECTION.\nCONSTAT : &quot;anchorRef&quot;">Tu es RÉFUTATEUR — lentille CORRECTION.</span>',
+      '<span class="agent-label" title="Tu es RÉFUTATEUR — lentille CORRECTION.&#10;CONSTAT : &quot;anchorRef&quot;">Tu es RÉFUTATEUR — lentille CORRECTION.</span>',
     );
     const open = renderApp(projects, { now: NOW, settings: SETTINGS, expandedWorkflows: new Set(['wf_t']) });
     expect(open).toContain(
-      '<td class="wf-name" title="Tu es RÉFUTATEUR — lentille CORRECTION.\nCONSTAT : &quot;anchorRef&quot;">Tu es RÉFUTATEUR — lentille CORRECTION.</td>',
+      '<td class="wf-name" title="Tu es RÉFUTATEUR — lentille CORRECTION.&#10;CONSTAT : &quot;anchorRef&quot;">Tu es RÉFUTATEUR — lentille CORRECTION.</td>',
     );
   });
 });

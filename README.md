@@ -1,105 +1,117 @@
-# Claude Agents
+<div align="center">
 
-Real-time view of the Claude Code sessions, agents and sub-agents running on your
-machine, across all projects. **100% local, read-only access to `~/.claude`.**
+# <img src="assets/icon.png" alt="Claude Agent Map & Usage icon" width="40" align="center"> Claude Agent Map & Usage
 
-> ⭐ **Enjoying Claude Agents?** A [star on GitHub](https://github.com/PandaProgParis/ClaudeAgents) and a
-> [review on the Marketplace](https://marketplace.visualstudio.com/items?itemName=pandaprog.claude-agents&ssr=false#review-details)
-> help other Claude Code users find it. Bug or idea? [Open an issue](https://github.com/PandaProgParis/ClaudeAgents/issues).
+**Every Claude Code session, agent and plan limit - live, in your VS Code sidebar.**
 
-![Claude Agents preview](https://raw.githubusercontent.com/PandaProgParis/ClaudeAgents/main/assets/screenshot.png)
+[![Install from the Marketplace](https://img.shields.io/badge/VS%20Code-Install-007ACC?logo=visualstudiocode&logoColor=white)](https://marketplace.visualstudio.com/items?itemName=pandaprog.claude-agents)[![GitHub stars](https://img.shields.io/github/stars/PandaProgParis/ClaudeAgents?style=flat&logo=github)](https://github.com/PandaProgParis/ClaudeAgents)![100% local](https://img.shields.io/badge/100%25-local-2ea44f)![License: MIT](https://img.shields.io/badge/License-MIT-blue)
 
-## Features
+<p align="center">
+  <sub><b>Sub-agents</b> - nested delegations, live</sub><br>
+  <img src="assets/screen-sub-agents.png" alt="Sub-agent tree: nested delegations with model, duration and tokens">
+</p>
+<p align="center">
+  <sub><b>Plan usage</b> - 5h, weekly...</sub><br>
+  <img src="assets/screen-usage_c.png" alt="Collapsed plan usage card: 5h and weekly gauges on one line">
+</p>
+<p align="center">
+  <sub><b>Agent map</b> - every agent, its duration and tokens</sub><br>
+  <img src="assets/screen-agents.png" alt="Agent map: every agent of a session with its duration and tokens">
+</p>
 
-- **All your sessions at a glance** — one card per Claude Code session, grouped by project, refreshed every 2 s.
-- **Sub-agent tree** — sub-agents shown under their session, with parent → child → grandchild indentation reconstructed from filiation. Each one is labelled with the description its parent gave it (“Fix the table column widths”); hover for the start of its prompt.
-- **Workflows as a strip of squares** — each workflow appears by name with one square per agent (grey done, blue running, red failed) and a “24/33 ✓ · 3 running” counter; only the running or failed agents are listed underneath, numbered #1, #2… to match their square. Agents are labelled by what is specific to each of them: the first line of their prompt after the preamble shared by the whole run, then the label the script itself gave them (`refute:selection:correction`) once the run is over; hover for the rest of the prompt. Hover a square for its label, model and duration. Click the workflow line to unfold its description and the phases declared by its script, plus a table of all its agents (label, model, context, run time).
-- **Live activity** — the session shows whether the model is thinking (💭) or which tool is running (✎ editing, ⏵ running, 🔍 searching, 📖 reading, 🤖 delegating…), and goes quiet the moment the turn ends, unless sub-agents it launched are still running (🤖 delegating). Sub-agents show their current tool too.
-- **Background commands** — a dev server or a long build started in the background is listed under its session (the agent's own description of it), with its duration and its local URL as a clickable link, until it finishes. The URL is the one the command itself printed; nothing is guessed.
-- **Only the URLs that still answer** — each printed port is probed (a TCP connect on `127.0.0.1`, nothing leaves your machine), so a dev server relaunched three times no longer shows three addresses when only one serves: the dead links simply go. And a session that has gone quiet past the retention delay while its server is still up no longer disappears with its link — the card collapses to just its live URLs.
-- **Progress checklist** — the session's current task list (✅ done, 🔵 in progress, ⬜ to do) with a `done/total` counter, so you see exactly where a multi-step feature stands. A fully completed list disappears as soon as you move on to your next prompt.
-- **Context & model** — colored model badge (fable, mythos, opus, sonnet, haiku; any other model id is shown verbatim) and a context bar “386k / 1M” with a ⚠ alert above 85%.
-- **Git branch** and **smart title** (AI-generated session title when you haven't renamed it manually; until then, the project name without Claude Code's random suffix).
-- **Waiting for you** — a session blocked on a question turns orange ⏳ with the question text, and is never hidden. Once the panel has been opened, the activity bar icon shows a badge with the number of sessions waiting for your answer, kept up to date even while the view is hidden.
-- **Current-project filter** — a button toggles between all projects and just the open workspace.
-- **Bilingual** — the UI follows your VS Code language (English / French).
+<p align="center">
+  <sub><b>Waiting for you</b> - and your dev servers' live links</sub><br>
+  <img src="assets/screen-question.png" alt="Session waiting for an answer, in orange, with live localhost links">
+</p>
 
-![Per-session task checklist](https://raw.githubusercontent.com/PandaProgParis/ClaudeAgents/main/assets/screenshot2.png)
+<p align="center">
+  <sub><b>Workflows</b> - one square per agent</sub><br>
+  <img src="assets/screen-tasks-claude.png" alt="Workflow strip: one square per agent, done, running or failed">
+</p>
 
-## What's new in 0.8.4
+<p align="center">
+  <sub><b>Plan usage</b> - 5h, weekly, per model</sub><br>
+  <img src="assets/screen-usage.png" alt="Plan usage: session, weekly and per-model gauges">
+</p>
 
-- **Dead `localhost` links disappear.** Relaunching a dev server used to leave three addresses under the session when only one still served a page. Each printed port is now probed (a TCP connect on the loopback, nothing leaves your machine) and links that no longer answer are dropped. A port that has not been probed yet keeps its link: nothing is ever hidden on a guess.
-- **A session that is only a server no longer vanishes.** Past the inactivity delay, a session still serving a local URL collapses to a compact card with just that link, instead of disappearing and taking the address with it. It goes for good once the port stops answering.
-- **Killed background commands** no longer linger under their session. Claude Code writes nothing in the transcript when it stops a shell, so the extension now reads the marker left at the end of the command's own output.
+<p align="center">
+  <sub><b>Task list</b> - progress at a glance</sub><br>
+  <img src="assets/screen-tasks-superpowers.png" alt="Session task checklist with its done/total counter">
+</p>
 
-## Highlights
-
-- **Meaningful agent labels** — sub-agents show the description their parent gave them instead of the first line of their prompt. Workflow agents show what is specific to each of them: the first line of their prompt after the preamble shared by the whole run, then the script's own label (`impl:A-lib-pure`) once the run is over. Hover for the prompt excerpt.
-- **Session names** without Claude Code's random suffix (`l2lt-master-4e` → `l2lt-master`) until the session gets a title.
-- **Resumed sessions** no longer look busy thinking about a prompt sent before the resume.
-- **Main agent status** read from the transcript itself: 💭 thinking, running tool, 🤖 delegating to background sub-agents, or turn over. No more “paused” card during a long think.
-- **Background commands** (a dev server, a long build) listed under their session with their duration and the local URL they printed, until they finish.
-- **Workflows** under their real name, as a strip of one square per agent; failed agents flagged in red (from the run's `journal.jsonl`), agents numbered to match their square. Click a workflow to unfold its description, the phases its script declares and a table of all its agents.
-- **Progress checklist** per session (✅ done, 🔵 in progress, ⬜ to do); a fully completed list disappears as soon as you move on to your next prompt.
-- **Activity bar badge** with the number of sessions waiting for your answer, even while the panel is hidden.
-- **Models**: Claude Opus 5 and Mythos added with their 1M context window; any unknown model id is shown verbatim instead of being hidden.
-- For contributors: `npm run dev` previews the cards live in a browser over your real `~/.claude`, no VS Code reload needed.
-
-## Requirements
-
-[Claude Code](https://claude.com/claude-code) installed and used on the machine:
-the extension reads its `~/.claude` folder.
+</div>
 
 ## Install
 
-- From VS Code: search for **Claude Agents** in the Extensions tab.
-- Or from the command line: `code --install-extension pandaprog.claude-agents`
+1. Search **Claude Agent Map & Usage** in the Extensions tab, or run `code --install-extension pandaprog.claude-agents`.
+2. Click the **Claude Agents** icon in the activity bar.
+3. That's it - every running [Claude Code](https://claude.com/claude-code) session shows up.
 
-## Privacy
+Nothing to configure. The extension reads `~/.claude` on the same machine, read-only, and sends nothing anywhere.
 
-100% local. The extension reads `~/.claude` **read-only**, never writes anything,
-never touches `.credentials.json`, and **sends no data anywhere**.
+## What you see
 
-Its only network activity stays on your own loopback interface: to tell a live
-dev server from a dead one, it opens a TCP connection to `127.0.0.1:<port>` for
-the ports your background commands printed themselves, then closes it
-immediately. Nothing is sent, nothing is read from those ports, and no request
-ever leaves your machine.
+- **Live activity** per session - 💭 thinking, ✎ editing, ⏵ running, 🤖 delegating.
+- **Every agent** of the session, finished ones included, with the same duration and tokens as Claude Code.
+- **Orange when a session asks you something**, with a badge on the activity bar icon.
+- **Context bar and model**, prompt cache ⏱, effort level.
+- **Background commands** with their live `localhost` links.
+- **Failed agent?** Hover it to read why.
+
+## Plan usage
+
+Your claude.ai limits at the bottom of the view, fed by **[Claude Usage](https://github.com/PandaProgParis/ClaudeUsage)**, a small tray app that reads them for you - no API key.
+
+<p align="center">
+  <img src="assets/panel.png" alt="Claude Usage: gauges panel above the Windows tray">
+</p>
+
+<p align="center">
+  <img src="assets/settings.png" alt="Claude Usage settings: output file" width="300">
+</p>
+
+1. Install [Claude Usage](https://github.com/PandaProgParis/ClaudeUsage/releases/latest) and log in to claude.ai.
+2. Copy the **Output file** path from its settings.
+3. Paste it into `claudeAgents.usageFile`. The gauges appear.
+
+Your limits also sit at the far right of the **status bar**, with a live countdown to each reset: `Session 2% 4:09:21 · Weekly 18% 3d 04h`. A limit turns yellow at 80% and red at 95%. The small `⌄` next to it switches to rings, moves it to the left, hides it, or toggles the card in the view.
 
 ## Settings
 
 | Setting | Default | Effect |
 |---------|---------|--------|
-| `claudeAgents.showFinishedAgents` | `temporarily` | Finished (✓) and failed (✗) agents, and workflows where nothing runs anymore — `always`: kept · `temporarily`: gauge then disappear · `never`: active only |
-| `claudeAgents.finishedAgentRetentionSeconds` | `60` | Gauge duration before a finished or failed agent (or a settled workflow) disappears (`temporarily` mode) |
-| `claudeAgents.inactiveSessionRetentionMinutes` | `10` | Minutes of inactivity before a session is hidden (`0` = always show) |
+| `claudeAgents.showFinishedAgents` | `temporarily` | Finished agents: `always` · `temporarily` · `never` |
+| `claudeAgents.finishedAgentRetentionSeconds` | `60` | How long they stay in `temporarily` mode |
+| `claudeAgents.inactiveSessionRetentionMinutes` | `10` | Hide a session after this inactivity (`0` = never) |
+| `claudeAgents.alwaysShowWorkspaceSessions` | `true` | Keep the open workspace's sessions visible |
+| `claudeAgents.showUsage` | `true` | Show the plan usage card |
+| `claudeAgents.usageFile` | `""` | Path of the JSON file written by Claude Usage |
+| `claudeAgents.usageStatusBar` | `text` | Usage in the status bar: `text` · `rings` · `off` |
+| `claudeAgents.usageStatusBarSide` | `right` | Status bar side: `right` · `left` |
 
-## How it works
+## What's new in 1.0.0
 
-Read-only access to `~/.claude`: the live-session registry
-(`sessions/<pid>.json`, PID liveness check), the transcripts
-(`projects/…/<sessionId>.jsonl` — activity via mtime, model, title, context from
-the last `usage` block, git branch, last tool, task list from the last
-`TodoWrite` call, pending question when an `AskUserQuestion` has no result yet),
-the sub-agents (`…/subagents/**`, filiation reconstructed from the `toolUseId`
-in the `meta.json` files) and the workflows (`…/subagents/workflows/<runId>/`,
-failed agents from the run's `journal.jsonl`, name from the saved workflow
-script). Reads are bounded and cached by mtime: an idle session costs almost
-nothing. The view refreshes every 2 s while visible (5 s while hidden, for the
-badge only) and reacts within a moment when a session starts or ends.
+- **Plan usage in the status bar** - session and weekly limits with a live countdown to the reset, or as rings.
+- **Settings gear** in the view title, next to the project filter.
+- Usage card arrow now points up when collapsed.
 
-## Development
+## What's new in 0.9.0
 
-```bash
-npm install
-npm test           # unit tests (vitest)
-npm run typecheck  # tsc --noEmit
-npm run build      # esbuild → dist/extension.js + dist/webview.js
-npm run dev        # live preview of the cards at http://localhost:5173 — real CSS and
-                   # webview script over your real ~/.claude, auto-reload, no VS Code reload.
-                   # Settings bar on top, drag the separator to resize the sidebar column.
-npm run package    # → claude-agents-<version>.vsix
-# F5 in VS Code → Extension Development Host
-```
+- **Agent map** - click `N agents` for every agent of the session, with exact duration and tokens.
+- **Plan usage** - gauges at the bottom of the view, with the new [Claude Usage](https://github.com/PandaProgParis/ClaudeUsage) app.
+- **Per-session effort**, **prompt cache ⏱**, and **why an agent failed** on hover.
+- Sessions of the open workspace stay visible.
 
-Contributions welcome on [GitHub](https://github.com/PandaProgParis/ClaudeAgents).
+## Privacy
+
+Read-only on `~/.claude`, never touches `.credentials.json`, no network except a TCP check on `127.0.0.1` to tell a live dev server from a dead one.
+
+---
+
+<div align="center">
+
+⭐ Useful? [Star it on GitHub](https://github.com/PandaProgParis/ClaudeAgents) or [leave a review](https://marketplace.visualstudio.com/items?itemName=pandaprog.claude-agents&ssr=false#review-details) · [Report an issue](https://github.com/PandaProgParis/ClaudeAgents/issues)
+
+<sub>Development: `npm install` · `npm test` · `npm run dev` (live preview on your real `~/.claude`) · `npm run package` · MIT</sub>
+
+</div>

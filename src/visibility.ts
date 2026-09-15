@@ -4,15 +4,18 @@ function normalizePath(value: string): string {
   return value.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
 }
 
+/** Vrai si le cwd est l'un des dossiers, un sous-dossier de l'un d'eux, ou un dossier qui en contient un. */
+export function isInFolders(cwd: string, folders: string[]): boolean {
+  const target = normalizePath(cwd);
+  return folders
+    .map(normalizePath)
+    .filter((folder) => folder.length > 0)
+    .some((folder) => target === folder || target.startsWith(`${folder}/`) || folder.startsWith(`${target}/`));
+}
+
 /** Garde les projets liés aux dossiers du workspace (cwd égal, contenu ou contenant). */
 export function filterProjectsForWorkspace(projects: ProjectNode[], workspaceFolders: string[]): ProjectNode[] {
-  const folders = workspaceFolders.map(normalizePath).filter((folder) => folder.length > 0);
-  return projects.filter((project) => {
-    const cwd = normalizePath(project.cwd);
-    return folders.some(
-      (folder) => cwd === folder || cwd.startsWith(`${folder}/`) || folder.startsWith(`${cwd}/`),
-    );
-  });
+  return projects.filter((project) => isInFolders(project.cwd, workspaceFolders));
 }
 
 /** Nombre de sessions bloquées sur une question, tous projets du périmètre confondus (badge de l'icône). */
@@ -23,12 +26,16 @@ export function countWaitingSessions(projects: ProjectNode[]): number {
   );
 }
 
+/** Vrai si la session doit rester affichée quelle que soit son inactivité (ex. : son dossier est celui du workspace). */
+export type SessionPin = (session: SessionNode) => boolean;
+
 /** Masque les sessions inactives depuis plus de `retentionMinutes` (0 = toujours afficher).
- * Une session en attente de réponse utilisateur reste toujours visible. */
+ * Une session en attente de réponse utilisateur, ou épinglée, reste toujours visible. */
 export function filterVisibleSessions(
   sessions: SessionNode[],
   retentionMinutes: number,
   now: number,
+  isPinned?: SessionPin,
 ): SessionNode[] {
   if (retentionMinutes <= 0) {
     return sessions;
@@ -37,6 +44,7 @@ export function filterVisibleSessions(
     (session) =>
       session.active ||
       session.pendingQuestion === true ||
+      isPinned?.(session) === true ||
       now - (session.lastActivity ?? session.startedAt) < retentionMinutes * 60_000,
   );
 }
@@ -61,8 +69,9 @@ export function visibleSessionViews(
   sessions: SessionNode[],
   retentionMinutes: number,
   now: number,
+  isPinned?: SessionPin,
 ): SessionView[] {
-  const visible = new Set(filterVisibleSessions(sessions, retentionMinutes, now));
+  const visible = new Set(filterVisibleSessions(sessions, retentionMinutes, now, isPinned));
   const views: SessionView[] = [];
   for (const session of sessions) {
     if (visible.has(session)) {

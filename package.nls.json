@@ -2,7 +2,17 @@
   "view.sessions": "Sessions",
   "command.focusCurrentProject": "Show only the current project",
   "command.showAllProjects": "Show all projects",
+  "command.openSettings": "Open settings",
   "config.showFinishedAgents": "Display of finished or failed agents (and of workflows where nothing runs anymore): `always` (kept visible, dimmed), `temporarily` (hidden after the retention delay), `never` (active agents only).",
   "config.finishedAgentRetentionSeconds": "Delay (in seconds since last activity) before a finished or failed agent is hidden, in `temporarily` mode.",
-  "config.inactiveSessionRetentionMinutes": "Delay (in minutes since last activity) before an inactive session is hidden. `0` = always show."
+  "config.inactiveSessionRetentionMinutes": "Delay (in minutes since last activity) before an inactive session is hidden. `0` = always show.",
+  "config.alwaysShowWorkspaceSessions": "Keep the sessions of the open workspace visible whatever their inactivity (the delay above still applies to other projects).",
+  "config.showUsage": "Show plan limits at the bottom of the view (reads the usage file below)",
+  "config.usageFile": "Path to a JSON file holding the content of claude.ai/usage, kept up to date by your own tool",
+  "command.usageStatusBarMenu": "Usage display in the status bar",
+  "config.usageStatusBar": "Plan usage in the status bar: `text` (Session 2% 4:09:21 · Weekly 18% 3d 04h), `rings` (one ring per limit, figures on hover) or `off`. Needs `claudeAgents.usageFile`.",
+  "config.usageStatusBar.text": "Percentage and countdown to the reset",
+  "config.usageStatusBar.rings": "One ring per limit, figures on hover",
+  "config.usageStatusBar.off": "Hidden from the status bar",
+  "config.usageStatusBarSide": "Side of the status bar where the usage sits: `right` (at the far end) or `left`."
 }

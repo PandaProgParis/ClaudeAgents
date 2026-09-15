@@ -47,6 +47,21 @@ describe('STRINGS', () => {
     expect(STRINGS.en.failed).toBe('failed');
   });
 
+  it('libelle le cache d’invite et la carte des agents dans chaque langue', () => {
+    expect(STRINGS.fr.cacheWarm(12)).toBe('Cache d’invite chaud, encore 12 min');
+    expect(STRINGS.en.cacheWarm(12)).toBe('Prompt cache warm, about 12 min left');
+    expect(STRINGS.fr.cacheCold('8 h 39 min')).toBe('Cache d’invite probablement expiré · inactif depuis 8 h 39 min');
+    expect(STRINGS.en.cacheCold('8 h 39 min')).toBe('Prompt cache likely expired · idle 8 h 39 min');
+    expect(STRINGS.fr.cacheCompacted).toBe('Cache d’invite sans effet : conversation compactée');
+    expect(STRINGS.en.cacheCompacted).toBe('Prompt cache does not cover the compacted conversation');
+    expect(STRINGS.fr.finishedCount(5)).toBe('5 terminés');
+    expect(STRINGS.en.finishedCount(5)).toBe('5 finished');
+    expect(STRINGS.fr.toolUses(98)).toBe('98 outils');
+    expect(STRINGS.en.toolUses(98)).toBe('98 tool calls');
+    expect(STRINGS.fr.mapClose).toBe('Replier la carte des agents');
+    expect(STRINGS.en.mapClose).toBe('Collapse the agent map');
+  });
+
   it('libelle le badge des sessions en attente au singulier et au pluriel', () => {
     expect(STRINGS.fr.waitingBadge(1)).toBe('1 session attend une réponse');
     expect(STRINGS.fr.waitingBadge(3)).toBe('3 sessions attendent une réponse');

@@ -17,6 +17,8 @@ describe('parseStateQuery', () => {
       settings: { mode: 'temporarily', retentionSeconds: 60 },
       inactiveSessionRetentionMinutes: 10,
       locale: 'fr',
+      showUsage: true,
+      usageFile: '',
     });
   });
 
@@ -25,7 +27,16 @@ describe('parseStateQuery', () => {
       settings: { mode: 'always', retentionSeconds: 15 },
       inactiveSessionRetentionMinutes: 0,
       locale: 'en',
+      showUsage: true,
+      usageFile: '',
     });
+  });
+
+  it('active la card d’usage quand ?usage= porte un chemin', () => {
+    const on = parseStateQuery(new URLSearchParams('usage=C:/tmp/usage.json'));
+    expect(on).toMatchObject({ showUsage: true, usageFile: 'C:/tmp/usage.json' });
+    expect(parseStateQuery(new URLSearchParams('usage=0'))).toMatchObject({ showUsage: false, usageFile: '' });
+    expect(parseStateQuery(new URLSearchParams(''))).toMatchObject({ showUsage: true, usageFile: '' });
   });
 
   it('ignore les valeurs invalides', () => {
@@ -33,6 +44,15 @@ describe('parseStateQuery', () => {
     expect(query.settings).toEqual({ mode: 'temporarily', retentionSeconds: 60 });
     expect(query.inactiveSessionRetentionMinutes).toBe(10);
     expect(query.locale).toBe('fr');
+  });
+
+  it('épingle les dossiers passés en ?ws= (répétable), aucun sinon', () => {
+    expect(parseStateQuery(new URLSearchParams('ws=C:/dev/alpha&ws=C:/dev/beta')).pinnedFolders).toEqual([
+      'C:/dev/alpha',
+      'C:/dev/beta',
+    ]);
+    expect(parseStateQuery(new URLSearchParams('ws=')).pinnedFolders).toBeUndefined();
+    expect(parseStateQuery(new URLSearchParams(''))).not.toHaveProperty('pinnedFolders');
   });
 });
 

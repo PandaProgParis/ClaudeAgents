@@ -2,7 +2,17 @@
   "view.sessions": "Sessions",
   "command.focusCurrentProject": "Afficher uniquement le projet courant",
   "command.showAllProjects": "Afficher tous les projets",
+  "command.openSettings": "Ouvrir les paramètres",
   "config.showFinishedAgents": "Affichage des agents terminés ou en échec (et des workflows où plus rien ne tourne) : `always` (toujours visibles, grisés), `temporarily` (masqués après le délai de rétention), `never` (agents actifs uniquement).",
   "config.finishedAgentRetentionSeconds": "Délai (en secondes depuis la dernière activité) avant masquage d'un agent terminé ou en échec, en mode `temporarily`.",
-  "config.inactiveSessionRetentionMinutes": "Délai (en minutes depuis la dernière activité) avant masquage d'une session inactive. `0` = toujours afficher."
+  "config.inactiveSessionRetentionMinutes": "Délai (en minutes depuis la dernière activité) avant masquage d'une session inactive. `0` = toujours afficher.",
+  "config.alwaysShowWorkspaceSessions": "Garde visibles les sessions du workspace ouvert quelle que soit leur inactivité (le délai ci-dessus continue de s'appliquer aux autres projets).",
+  "config.showUsage": "Affiche les limites du forfait en bas de la vue (lit le fichier ci-dessous)",
+  "config.usageFile": "Chemin d'un fichier JSON contenant le contenu de claude.ai/usage, tenu à jour par votre propre outil",
+  "command.usageStatusBarMenu": "Affichage de l’usage dans la barre d’état",
+  "config.usageStatusBar": "Usage du forfait dans la barre d’état : `text` (Session 2% 4:09:21 · Hebdo 18% 3j 04h), `rings` (un anneau par limite, chiffres au survol) ou `off`. Nécessite `claudeAgents.usageFile`.",
+  "config.usageStatusBar.text": "Pourcentage et compte à rebours avant la reprise",
+  "config.usageStatusBar.rings": "Un anneau par limite, chiffres au survol",
+  "config.usageStatusBar.off": "Masqué de la barre d’état",
+  "config.usageStatusBarSide": "Côté de la barre d’état où se place l’usage : `right` (tout au bout) ou `left`."
 }

@@ -164,4 +164,11 @@ describe('squareTitle', () => {
     expect(squareTitle(agent({ status: 'failed' }), NOW)).toBe('Analyse des bugs · opus · il y a 12 s · en échec');
     expect(squareTitle(agent({ status: 'failed' }), NOW, 'en')).toBe('Analyse des bugs · opus · 12 s ago · failed');
   });
+
+  it('ajoute la raison de l’échec lue sur le disque quand elle est connue', () => {
+    const reason = "You've hit your session limit · resets 1:50pm (Asia/Seoul)";
+    expect(squareTitle(agent({ status: 'failed', failure: reason }), NOW)).toBe(
+      `Analyse des bugs · opus · il y a 12 s · en échec · ${reason}`,
+    );
+  });
 });
