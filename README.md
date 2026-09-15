@@ -1,6 +1,6 @@
 <div align="center">
 
-# <img src="assets/icon.png" alt="Claude Agent Map & Usage icon" width="40" align="center"> Claude Agent Map & Usage
+# <img src="https://raw.githubusercontent.com/PandaProgParis/ClaudeAgents/main/assets/icon.png" alt="Claude Agent Map & Usage icon" width="40" align="center"> Claude Agent Map & Usage
 
 **Every Claude Code session, agent and plan limit - live, in your VS Code sidebar.**
 
@@ -8,35 +8,35 @@
 
 <p align="center">
   <sub><b>Sub-agents</b> - nested delegations, live</sub><br>
-  <img src="assets/screen-sub-agents.png" alt="Sub-agent tree: nested delegations with model, duration and tokens">
+  <img src="https://raw.githubusercontent.com/PandaProgParis/ClaudeAgents/main/assets/screen-sub-agents.png" alt="Sub-agent tree: nested delegations with model, duration and tokens">
 </p>
 <p align="center">
   <sub><b>Plan usage</b> - 5h, weekly...</sub><br>
-  <img src="assets/screen-usage_c.png" alt="Collapsed plan usage card: 5h and weekly gauges on one line">
+  <img src="https://raw.githubusercontent.com/PandaProgParis/ClaudeAgents/main/assets/screen-usage_c.png" alt="Collapsed plan usage card: 5h and weekly gauges on one line">
 </p>
 <p align="center">
   <sub><b>Agent map</b> - every agent, its duration and tokens</sub><br>
-  <img src="assets/screen-agents.png" alt="Agent map: every agent of a session with its duration and tokens">
+  <img src="https://raw.githubusercontent.com/PandaProgParis/ClaudeAgents/main/assets/screen-agents.png" alt="Agent map: every agent of a session with its duration and tokens">
 </p>
 
 <p align="center">
   <sub><b>Waiting for you</b> - and your dev servers' live links</sub><br>
-  <img src="assets/screen-question.png" alt="Session waiting for an answer, in orange, with live localhost links">
+  <img src="https://raw.githubusercontent.com/PandaProgParis/ClaudeAgents/main/assets/screen-question.png" alt="Session waiting for an answer, in orange, with live localhost links">
 </p>
 
 <p align="center">
   <sub><b>Workflows</b> - one square per agent</sub><br>
-  <img src="assets/screen-tasks-claude.png" alt="Workflow strip: one square per agent, done, running or failed">
+  <img src="https://raw.githubusercontent.com/PandaProgParis/ClaudeAgents/main/assets/screen-tasks-claude.png" alt="Workflow strip: one square per agent, done, running or failed">
 </p>
 
 <p align="center">
   <sub><b>Plan usage</b> - 5h, weekly, per model</sub><br>
-  <img src="assets/screen-usage.png" alt="Plan usage: session, weekly and per-model gauges">
+  <img src="https://raw.githubusercontent.com/PandaProgParis/ClaudeAgents/main/assets/screen-usage.png" alt="Plan usage: session, weekly and per-model gauges">
 </p>
 
 <p align="center">
   <sub><b>Task list</b> - progress at a glance</sub><br>
-  <img src="assets/screen-tasks-superpowers.png" alt="Session task checklist with its done/total counter">
+  <img src="https://raw.githubusercontent.com/PandaProgParis/ClaudeAgents/main/assets/screen-tasks-superpowers.png" alt="Session task checklist with its done/total counter">
 </p>
 
 </div>
@@ -63,11 +63,11 @@ Nothing to configure. The extension reads `~/.claude` on the same machine, read-
 Your claude.ai limits at the bottom of the view, fed by **[Claude Usage](https://github.com/PandaProgParis/ClaudeUsage)**, a small tray app that reads them for you - no API key.
 
 <p align="center">
-  <img src="assets/panel.png" alt="Claude Usage: gauges panel above the Windows tray">
+  <img src="https://raw.githubusercontent.com/PandaProgParis/ClaudeAgents/main/assets/panel.png" alt="Claude Usage: gauges panel above the Windows tray">
 </p>
 
 <p align="center">
-  <img src="assets/settings.png" alt="Claude Usage settings: output file" width="300">
+  <img src="https://raw.githubusercontent.com/PandaProgParis/ClaudeAgents/main/assets/settings.png" alt="Claude Usage settings: output file" width="300">
 </p>
 
 1. Install [Claude Usage](https://github.com/PandaProgParis/ClaudeUsage/releases/latest) and log in to claude.ai.
@@ -89,17 +89,13 @@ Your limits also sit at the far right of the **status bar**, with a live countdo
 | `claudeAgents.usageStatusBar` | `text` | Usage in the status bar: `text` · `rings` · `off` |
 | `claudeAgents.usageStatusBarSide` | `right` | Status bar side: `right` · `left` |
 
-## What's new in 1.0.0
-
-- **Plan usage in the status bar** - session and weekly limits with a live countdown to the reset, or as rings.
-- **Settings gear** in the view title, next to the project filter.
-- Usage card arrow now points up when collapsed.
-
 ## What's new in 0.9.0
 
 - **Agent map** - click `N agents` for every agent of the session, with exact duration and tokens.
 - **Plan usage** - gauges at the bottom of the view, with the new [Claude Usage](https://github.com/PandaProgParis/ClaudeUsage) app.
+- **Plan usage in the status bar** - session and weekly limits with a live countdown to the reset, or as rings.
 - **Per-session effort**, **prompt cache ⏱**, and **why an agent failed** on hover.
+- **Settings gear** in the view title, next to the project filter.
 - Sessions of the open workspace stay visible.
 
 ## Privacy
