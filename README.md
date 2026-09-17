@@ -57,6 +57,7 @@ Nothing to configure. The extension reads `~/.claude` on the same machine, read-
 - **Context bar and model**, prompt cache ⏱, effort level.
 - **Background commands** with their live `localhost` links.
 - **Failed agent?** Hover it to read why.
+- **Superpowers plans** - each task of a subagent-driven plan as a square, with its agents' time and tokens.
 
 ## Plan usage
 
@@ -88,6 +89,13 @@ Your limits also sit at the far right of the **status bar**, with a live countdo
 | `claudeAgents.usageFile` | `""` | Path of the JSON file written by Claude Usage |
 | `claudeAgents.usageStatusBar` | `text` | Usage in the status bar: `text` · `rings` · `off` |
 | `claudeAgents.usageStatusBarSide` | `right` | Status bar side: `right` · `left` |
+
+## What's new in 0.9.1
+
+- **Superpowers plans** - a session running a [superpowers](https://github.com/obra/superpowers) subagent-driven plan shows its tasks as squares: done, running, in review, to do. Click `📋 Plan` or the squares for the list.
+- **Time and tokens per task** - each task adds up the agents that worked on it, from the first start to the last finish.
+- **Finished plans step aside** once you talk to Claude about something else; `‹` `›` browse the folder's earlier plans.
+- Agent rows: the current activity sits right after the title, and the agent type moved to the tooltip.
 
 ## What's new in 0.9.0
 

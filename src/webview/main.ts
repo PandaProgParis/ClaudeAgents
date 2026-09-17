@@ -20,13 +20,25 @@ const api = typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : undefi
  * Liste d'ids sauvegardée dans l'état de la webview sous `key` (vide si absente ou d'une autre forme).
  * Dans l'aperçu local, sans API VS Code, la même clé se lit dans l'URL (?maps=<sessionId>, répétable).
  */
-function savedIds(key: 'expanded' | 'maps'): string[] {
+function savedIds(key: 'expanded' | 'maps' | 'sdd'): string[] {
   if (api === undefined) {
     return new URLSearchParams(window.location.search).getAll(key);
   }
   const saved = api.getState();
   const ids = typeof saved === 'object' && saved !== null ? (saved as Record<string, unknown>)[key] : undefined;
   return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : [];
+}
+
+/** Couples [clé, valeur] sauvegardés dans l'état de la webview sous `key` (vide si absents ou d'une autre forme). */
+function savedPairs(key: 'sddViewed'): Array<[string, string]> {
+  const saved = api?.getState();
+  const pairs = typeof saved === 'object' && saved !== null ? (saved as Record<string, unknown>)[key] : undefined;
+  return Array.isArray(pairs)
+    ? pairs.filter(
+        (pair): pair is [string, string] =>
+          Array.isArray(pair) && pair.length === 2 && typeof pair[0] === 'string' && typeof pair[1] === 'string',
+      )
+    : [];
 }
 
 /** Drapeau sauvegardé dans l'état de la webview sous `key` ; dans l'aperçu local, `?<key>=1`. */
@@ -42,11 +54,21 @@ function savedFlag(key: 'usageCollapsed'): boolean {
 const expandedWorkflows = new Set<string>(savedIds('expanded'));
 /** Sessions dont la carte des agents est dépliée ; même mécanique. */
 const expandedMaps = new Set<string>(savedIds('maps'));
+/** Sessions dont la liste des tâches SDD est dépliée ; même mécanique. */
+const expandedSdd = new Set<string>(savedIds('sdd'));
+/** Ancien plan consulté par session (dossier du workspace) ; même mécanique, absent de l'aperçu local. */
+const sddViewed = new Map<string, string>(savedPairs('sddViewed'));
 /** Card d'usage réduite à une ligne (flèche) ; même mécanique. */
 let usageCollapsed = savedFlag('usageCollapsed');
 
 function persistExpanded(): void {
-  api?.setState({ expanded: [...expandedWorkflows], maps: [...expandedMaps], usageCollapsed });
+  api?.setState({
+    expanded: [...expandedWorkflows],
+    maps: [...expandedMaps],
+    sdd: [...expandedSdd],
+    sddViewed: [...sddViewed],
+    usageCollapsed,
+  });
 }
 
 function toggle(set: Set<string>, id: string, open?: boolean): void {
@@ -69,6 +91,30 @@ root.addEventListener('click', (event) => {
       persistExpanded();
       render();
     }
+    return;
+  }
+  // Flèches ‹ › de l'historique des plans.
+  const arrow = target?.closest('.sdd-nav');
+  if (arrow) {
+    const sessionKey = arrow.closest('article.card')?.getAttribute('data-key');
+    if (sessionKey?.startsWith('sess:')) {
+      const plan = arrow.getAttribute('data-sdd-plan') ?? '';
+      if (plan === '') {
+        sddViewed.delete(sessionKey.slice(5));
+      } else {
+        sddViewed.set(sessionKey.slice(5), plan);
+      }
+      persistExpanded();
+      render();
+    }
+    return;
+  }
+  // « Plan » ou les carrés : déplie ou replie la liste des tâches du plan.
+  const sddKey = target?.closest('.sdd-toggle')?.closest('.sdd')?.getAttribute('data-key');
+  if (sddKey?.startsWith('sdd:')) {
+    toggle(expandedSdd, sddKey.slice(4));
+    persistExpanded();
+    render();
     return;
   }
   const key = target?.closest('.wf-head')?.closest('li.workflow')?.getAttribute('data-key');
@@ -99,6 +145,8 @@ function render(): void {
     locale: state.locale,
     expandedWorkflows,
     expandedMaps,
+    expandedSdd,
+    sddViewed,
     pinnedFolders: state.pinnedFolders,
   });
   renderUsageCard();

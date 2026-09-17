@@ -69,3 +69,95 @@ describe('cards.css — survol des étoiles de l’encart de notation', () => {
     }
   });
 });
+
+describe('cards.css — carrés SDD', () => {
+  /** Corps d'une règle dont un sélecteur correspond exactement. */
+  function body(selector: string): string | undefined {
+    const match = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((rule) =>
+      rule[1].split(',').map((s) => s.trim()).includes(selector),
+    );
+    return match?.[2];
+  }
+
+  // Les deux états signifient « c'est la tâche sur laquelle ça travaille » : sans animation,
+  // on ne voit pas que le run avance.
+  it.each(['.sdd-sq.doing', '.sdd-sq.review'])('%s pulse pour montrer que le travail tourne', (selector) => {
+    expect(body(selector)).toMatch(/animation:\s*pulse/);
+  });
+
+  it('un carré terminé ou à faire ne pulse pas', () => {
+    expect(body('.sdd-sq.done')).not.toMatch(/animation/);
+    expect(body('.sdd-sq')).not.toMatch(/animation/);
+  });
+});
+
+describe('cards.css — ligne d’un agent', () => {
+  const body = (selector: string) =>
+    [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((rule) => rule[1].split(',').map((s) => s.trim()).includes(selector))?.[2];
+
+  // Un titre qui prend toute la largeur repousserait le verbe contre les chiffres, loin du titre.
+  it('le titre ne s’étire pas : le verbe le suit, les chiffres restent à droite', () => {
+    expect(body('.agent-label')).not.toMatch(/(?:^|[;\s])flex:\s*1\s*;/);
+    expect(body('.agent-label')).toMatch(/min-width:\s*0/);
+    expect(body('.agent-desc')).toMatch(/margin-left:\s*auto/);
+  });
+
+  it('le verbe ne passe pas à la ligne', () => {
+    expect(body('.agent-verb')).toMatch(/flex:\s*none/);
+    expect(body('.agent-verb')).toMatch(/white-space:\s*nowrap/);
+  });
+});
+
+describe('cards.css — plan consulté dans l’historique', () => {
+  const rules = parseRules(css);
+  /** Valeur d'une propriété, prise dans la première règle qui la pose et dont un sélecteur correspond exactement. */
+  const property = (selector: string, name: string) =>
+    [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter((rule) => rule[1].split(',').map((s) => s.trim()).includes(selector))
+      .map((rule) => rule[2].match(new RegExp(`(?:^|[;\\s])${name}:\\s*([^;]+);`))?.[1].trim())
+      .find((value) => value !== undefined);
+
+  it('sépare la ligne « N plans » du reste de la card comme le bloc d’un plan', () => {
+    for (const name of ['border-top', 'padding-top', 'margin-top']) {
+      expect(property('.sdd', name), name).toBeDefined();
+      expect(property('.sdd-history', name), name).toBe(property('.sdd', name));
+    }
+  });
+
+  it('aligne à droite les chiffres des agents d’une tâche, sans les couper', () => {
+    expect(property('.sdd-figures', 'margin-left')).toBe('auto');
+    expect(property('.sdd-figures', 'white-space')).toBe('nowrap');
+    expect(property('.sdd-text', 'min-width')).toBe('0');
+  });
+
+  it('ancre la date et › à droite de l’en-tête', () => {
+    expect(property('.sdd-pager', 'margin-left')).toBe('auto');
+  });
+
+  // Grisée ou cliquable, ‹ occupe la même place : « Plan » ne bouge pas d'un plan à l'autre.
+  it('donne la même largeur aux flèches cliquables et grisées', () => {
+    expect(property('.sdd-nav', 'width')).toBeDefined();
+    expect(property('.sdd-nav-off', 'width')).toBe(property('.sdd-nav', 'width'));
+  });
+
+  it('colore en bleu de lien la flèche cliquable, en gris atténué celle qui ne mène nulle part', () => {
+    expect(property('.sdd-nav', 'color')).toMatch(/--vscode-textLink-foreground/);
+    expect(property('.sdd-nav-off', 'color')).toMatch(/--vscode-descriptionForeground/);
+    expect(Number(property('.sdd-nav-off', 'opacity'))).toBeLessThan(1);
+  });
+
+  it('dessine les chevrons au trait, dans la couleur de la flèche', () => {
+    expect(property('.sdd-chevron', 'stroke')).toBe('currentColor');
+    expect(property('.sdd-chevron', 'fill')).toBe('none');
+  });
+
+  // Personne ne travaille sur un ancien plan : ses carrés « en cours » ou « en revue » ne doivent pas pulser.
+  it('coupe la pulsation des carrés d’un plan passé, et l’emporte sur les états qui pulsent', () => {
+    const stop = rules.find((rule) => rule.selectors.includes('.sdd.past .sdd-sq'));
+    expect(stop).toBeDefined();
+    expect(css.slice(stop!.index)).toMatch(/^[^{]*\{[^}]*animation:\s*none/);
+    for (const pulsing of ['.sdd-sq.doing', '.sdd-sq.review']) {
+      expect(compare(specificity('.sdd.past .sdd-sq'), specificity(pulsing)), pulsing).toBeGreaterThan(0);
+    }
+  });
+});

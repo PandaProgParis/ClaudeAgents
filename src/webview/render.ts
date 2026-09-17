@@ -1,7 +1,7 @@
-import type { AgentNode, FinishedAgentSettings, ProjectNode, SessionNode, WorkflowNode } from '../types';
+import type { AgentNode, FinishedAgentSettings, ProjectNode, SddRun, SddTaskState, SessionNode, WorkflowNode } from '../types';
 import { filterVisibleAgents, isInFolders, visibleSessionViews, type SessionPin, type SessionView } from '../visibility';
 import { abbreviateModel, contextLimitFor, formatDuration, formatTokens, modelFamily } from '../format';
-import { STRINGS, type Locale } from '../i18n';
+import { STRINGS, type Locale, type LocaleStrings } from '../i18n';
 import {
   activityVerb,
   agentDescription,
@@ -9,6 +9,9 @@ import {
   agentLabel,
   agentTokens,
   backgroundTaskTitle,
+  sddFiguresText,
+  sddTaskFigures,
+  sddTaskTitle,
   squareTitle,
   workflowDescription,
   workflowLabel,
@@ -26,6 +29,10 @@ export interface RenderOptions {
   expandedWorkflows?: ReadonlySet<string>;
   /** Ids des sessions dont la carte des agents est dépliée (état tenu par la webview). */
   expandedMaps?: ReadonlySet<string>;
+  /** Ids des sessions dont la liste des tâches SDD est dépliée (état tenu par la webview). */
+  expandedSdd?: ReadonlySet<string>;
+  /** Ancien plan consulté par session (dossier du workspace) ; absent = position par défaut. */
+  sddViewed?: ReadonlyMap<string, string>;
   /** Dossiers du workspace : leurs sessions restent en card complète au-delà de la rétention. */
   pinnedFolders?: string[];
 }
@@ -89,6 +96,7 @@ function renderSessionCard(session: SessionNode, options: RenderOptions): string
     question,
     renderBackgroundTasks(session, options),
     mapOpen ? renderAgentMap(session, options) : renderAgents(session, options),
+    renderSdd(session, options),
     renderTodos(session),
     renderContext(session, options.locale ?? 'fr'),
     '</article>',
@@ -283,6 +291,115 @@ function hostOf(url: string): string {
   }
 }
 
+/** Pictos de la liste dépliée, un par état. */
+const SDD_ICONS: Record<SddTaskState, string> = {
+  done: '✅',
+  doing: '🔵',
+  review: '🟡',
+  pending: '⬜',
+};
+
+/** Chevrons ‹ › en SVG : un glyphe n'occupe qu'une partie de sa boîte, petit et bas quelle que soit la police. */
+const SDD_CHEVRONS = {
+  prev: '<svg class="sdd-chevron" viewBox="0 0 10 10" aria-hidden="true"><path d="M6.5 1.5 L3 5 L6.5 8.5"/></svg>',
+  next: '<svg class="sdd-chevron" viewBox="0 0 10 10" aria-hidden="true"><path d="M3.5 1.5 L7 5 L3.5 8.5"/></svg>',
+};
+
+/**
+ * Flèche vers un autre plan : une cible vide ramène à la position par défaut (plan courant, ou ligne d'accès).
+ * Sans cible, la flèche reste à sa place mais grisée, et n'est pas un .sdd-nav : rien à cliquer.
+ */
+function sddArrow(direction: 'prev' | 'next', target: string | undefined, strings: LocaleStrings): string {
+  if (target === undefined) {
+    const title = direction === 'prev' ? strings.sddNoPrevious : strings.sddNoNext;
+    return `<span class="sdd-nav-off" title="${escapeHtml(title)}">${SDD_CHEVRONS[direction]}</span>`;
+  }
+  const title = direction === 'prev' ? strings.sddPrevious : strings.sddNext;
+  return `<button class="sdd-nav" data-sdd-plan="${escapeHtml(target)}" title="${escapeHtml(title)}">${SDD_CHEVRONS[direction]}</button>`;
+}
+
+/**
+ * Tâches d'un plan exécuté en subagent-driven development : une rangée de carrés, dépliable en liste.
+ * Le SDD n'écrit pas de TodoWrite — ce bloc est lu dans son workspace, et coexiste donc avec la todo-list.
+ *
+ * Les autres plans du dossier (anciens, ou le courant une fois retiré) se parcourent avec ‹ ›, du plus récent
+ * au plus ancien ; la position la plus à droite est la position par défaut.
+ */
+function renderSdd(session: SessionNode, options: RenderOptions): string {
+  const strings = STRINGS[options.locale ?? 'fr'];
+  const current = session.sdd;
+  const history = (session.sddPlans ?? []).filter((plan) => plan.dir !== current?.dir);
+  const viewedDir = options.sddViewed?.get(session.sessionId);
+  const index = history.findIndex((plan) => plan.dir === viewedDir);
+  const key = `sdd:${escapeHtml(session.sessionId)}`;
+
+  if (index !== -1) {
+    const prev = sddArrow('prev', history[index + 1]?.dir, strings);
+    const next = sddArrow('next', index === 0 ? '' : history[index - 1].dir, strings);
+    return renderSddPlan(session, history[index], options, { key, past: true, prev, next });
+  }
+  const prev = sddArrow('prev', history[0]?.dir, strings);
+  const next = sddArrow('next', undefined, strings);
+  if (current) {
+    return renderSddPlan(session, current, options, { key, past: false, prev, next });
+  }
+  if (history.length === 0) {
+    return '';
+  }
+  return `<div class="sdd-history" data-key="${key}">${prev}<span>📋 ${escapeHtml(strings.sddHistory(history.length))}</span><span class="sdd-pager">${next}</span></div>`;
+}
+
+function renderSddPlan(
+  session: SessionNode,
+  sdd: SddRun,
+  options: RenderOptions,
+  nav: { key: string; past: boolean; prev: string; next: string },
+): string {
+  if (sdd.tasks.length === 0) {
+    return '';
+  }
+  const locale = options.locale ?? 'fr';
+  const strings = STRINGS[locale];
+  const open = options.expandedSdd?.has(session.sessionId) ?? false;
+  const agents = allAgents(session);
+  const tasks = sdd.tasks.map((task) => {
+    const figures = sddTaskFigures(agents, sdd.plan, task.number, options.now);
+    const title = sddTaskTitle(task, locale);
+    return {
+      task,
+      title: figures ? `${title} · ${sddFiguresText(figures, locale, 'tooltip')}` : title,
+      figures: figures ? `<span class="sdd-figures">${escapeHtml(sddFiguresText(figures, locale, 'line'))}</span>` : '',
+    };
+  });
+  const squares = tasks
+    .map(({ task, title }) => `<li class="sdd-sq ${task.state}" title="${escapeHtml(title)}"></li>`)
+    .join('');
+  const list = open
+    ? `<ul class="sdd-list">${tasks
+        .map(({ task, title, figures }) => {
+          const icon = SDD_ICONS[task.state];
+          const label = strings.sddTask(task.number, task.title);
+          return `<li class="sdd-task ${task.state}" title="${escapeHtml(title)}"><span class="sdd-tick">${icon}</span><span class="sdd-text">${escapeHtml(label)}</span>${figures}</li>`;
+        })
+        .join('')}</ul>`
+    : '';
+  const inReview = sdd.tasks.filter((task) => task.state === 'review').length;
+  const review = inReview > 0 ? ` <span class="sdd-review">· ${escapeHtml(strings.sddInReview(inReview))}</span>` : '';
+  // ‹ « Plan » compteur … date › : « Plan », son compteur et les carrés déplient la liste (main.ts : .sdd-toggle).
+  return [
+    `<div class="sdd${nav.past ? ' past' : ''}${open ? ' open' : ''}" data-key="${nav.key}">`,
+    `<div class="sdd-head">${nav.prev}<span class="sdd-toggle">`,
+    `<span title="${escapeHtml(strings.sddPlanTitle(sdd.plan))}">📋 ${escapeHtml(strings.sddLabel)}</span>`,
+    sdd.finalReview
+      ? `<span class="sdd-count" title="${escapeHtml(strings.sddFinished)}">${escapeHtml(strings.sddCount(sdd.doneCount, sdd.totalCount))} ✓</span>`
+      : `<span class="sdd-count">${escapeHtml(strings.sddCount(sdd.doneCount, sdd.totalCount))}${review}</span>`,
+    `</span><span class="sdd-pager"><span class="sdd-when" title="${escapeHtml(strings.sddUpdatedTitle)}">${escapeHtml(strings.sddUpdated(sdd.updatedAt))}</span>${nav.next}</span></div>`,
+    `<ul class="sdd-squares sdd-toggle">${squares}</ul>`,
+    list,
+    '</div>',
+  ].join('');
+}
+
 const TODO_MAX = 15;
 
 /** Liste de tâches (TodoWrite) en cases cochées : ✅ terminée, 🔵 en cours, ⬜ à faire. */
@@ -449,21 +566,19 @@ function renderAgentLine(agent: AgentNode, options: RenderOptions, ordinal?: num
       ? renderRetentionGauge(agent.lastActivity, options)
       : '';
   const label = agentLabel(agent);
-  const typeBadge = agent.agentType
-    ? `<span class="agent-type">${escapeHtml(agent.agentType.split(':').pop() ?? agent.agentType)}</span>`
-    : '';
+  // Type en infobulle seulement : presque toujours « general-purpose », il mangeait la place du titre.
+  const type = agent.agentType ? STRINGS[locale].agentType(agent.agentType) : undefined;
   const verb =
     agent.status === 'active' && agent.lastTool
       ? `<span class="agent-verb">${escapeHtml(activityVerb(agent.lastTool, locale))}</span>`
       : '';
-  const left = typeBadge || verb ? `<span class="agent-left">${typeBadge}${verb}</span>` : '';
   const depthClass = agent.depth ? ` depth-${Math.min(agent.depth, 3)}` : '';
   return [
     `<li class="agent${depthClass}" data-key="ag:${escapeHtml(agent.id)}">`,
     icon,
     index,
-    left,
-    `<span class="agent-label" title="${labelTooltip(agent, label)}">${escapeHtml(label)}</span>`,
+    `<span class="agent-label" title="${labelTooltip(agent, label, type)}">${escapeHtml(label)}</span>`,
+    verb,
     `<span class="agent-desc">${escapeHtml(agentDescription(agent, options.now, locale) + context)}</span>`,
     gauge,
     '</li>',

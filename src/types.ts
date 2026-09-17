@@ -108,6 +108,37 @@ export interface StateMessage {
   pinnedFolders?: string[];
 }
 
+export type SddTaskState = 'done' | 'doing' | 'review' | 'pending';
+
+/** Tâche d'un plan exécuté en subagent-driven development, telle que son workspace la donne à voir. */
+export interface SddTask {
+  number: number;
+  state: SddTaskState;
+  /** Titre lu dans le plan, absent quand le plan n'a pas pu être lu. */
+  title?: string;
+  /** Artefacts présents dans le workspace : des faits, pas une interprétation. */
+  brief: boolean;
+  report: boolean;
+  review: boolean;
+  /** Dernière ronde de correction présente, absente quand il n'y en a aucune. */
+  fixRound?: number;
+}
+
+export interface SddRun {
+  /** Dossier du workspace : `<…>/.superpowers/sdd/<plan>`. */
+  dir: string;
+  /** Nom du plan, qui est celui du dossier du workspace. */
+  plan: string;
+  tasks: SddTask[];
+  doneCount: number;
+  /** Un fichier de revue finale est présent : le plan est fini, toutes ses tâches sont terminées. */
+  finalReview: boolean;
+  /** Dernière écriture du workspace : un prompt humain postérieur retire un plan fini de la card. */
+  updatedAt: number;
+  /** Nombre de tâches du plan, absent quand le plan n'a pas pu être lu : jamais un total supposé. */
+  totalCount?: number;
+}
+
 export type TodoStatus = 'pending' | 'in_progress' | 'completed';
 
 export interface TodoItem {
@@ -146,6 +177,14 @@ export interface AgentNode {
   parentAgentId?: string;
   /** Profondeur de filiation : 0 = lancé par la session, 1 = petit-fils, etc. */
   depth?: number;
+  /** Tâche d'un plan SDD dont le prompt de l'agent nomme les fichiers (`.superpowers/sdd/<plan>/task-<N>-….md`). */
+  sddTask?: SddTaskLink;
+}
+
+export interface SddTaskLink {
+  /** Nom du dossier du workspace, comme SddRun.plan. */
+  plan: string;
+  number: number;
 }
 
 export interface WorkflowNode {
@@ -189,6 +228,10 @@ export interface SessionNode {
   backgroundTasks?: BackgroundTask[];
   /** Dernière liste de tâches (TodoWrite) de la session : « où en est » le travail. */
   todos?: TodoItem[];
+  /** Run subagent-driven development trouvé sous le dossier de la session : ses tâches vivent en fichiers, pas en TodoWrite. */
+  sdd?: SddRun;
+  /** Tous les plans du dossier, du plus récent au plus ancien, y compris un plan fini retiré : l'historique parcouru par les flèches. */
+  sddPlans?: SddRun[];
   agents: AgentNode[];
   workflows: WorkflowNode[];
 }

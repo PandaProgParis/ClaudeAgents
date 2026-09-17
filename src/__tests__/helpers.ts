@@ -46,6 +46,20 @@ export function assistantLine(model: string, gitBranch?: string): string {
   });
 }
 
+/**
+ * Ligne user telle que Claude Code ≥ 2.1.263 l'écrit : `origin.kind` distingue un prompt tapé par l'humain
+ * (`human`) d'une notification de fin de tâche livrée à l'agent (`task-notification`).
+ */
+export function originLine(kind: 'human' | 'task-notification', text: string, timestamp: number): string {
+  return JSON.stringify({
+    promptId: `p-${timestamp}`,
+    type: 'user',
+    timestamp: new Date(timestamp).toISOString(),
+    origin: { kind },
+    message: { role: 'user', content: [{ type: 'text', text }] },
+  });
+}
+
 /** Ligne JSONL d'entrée user (content chaîne). */
 export function userLine(text: string, promptId?: string): string {
   return JSON.stringify({

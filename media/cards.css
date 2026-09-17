@@ -165,14 +165,197 @@ body {
   white-space: nowrap;
 }
 
-.agent-type {
+/* Tâches d'un plan en subagent-driven development : rangée de carrés, dépliable en liste. */
+.sdd,
+.sdd-history {
+  margin-top: 5px;
+  padding-top: 4px;
+  border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+}
+
+.sdd-head {
+  display: flex;
+  align-items: center;
+  font-size: 9px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.sdd-toggle {
+  cursor: pointer;
+}
+
+.sdd-head .sdd-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+
+.sdd-count {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sdd-squares {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  list-style: none;
+  margin: 3px 0 0;
+  padding: 0;
+}
+
+.sdd-sq {
+  width: 7px;
+  height: 7px;
+  border-radius: 1.5px;
+  box-sizing: border-box;
+  background: var(--vscode-descriptionForeground);
+  opacity: 0.35;
+}
+
+.sdd-sq.done {
+  background: var(--vscode-charts-green, #89d185);
+  opacity: 1;
+}
+
+.sdd-sq.doing {
+  background: var(--vscode-charts-blue, #3794ff);
+  opacity: 1;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Implémentation rendue, achèvement non attesté : ni « en cours », ni « terminée ».
+   Pulse comme .doing — c'est toujours la tâche sur laquelle le run travaille. */
+.sdd-sq.review {
+  background: var(--vscode-charts-yellow, #cca700);
+  opacity: 1;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.sdd-review {
+  color: var(--vscode-charts-yellow, #cca700);
+}
+
+/* Plan consulté dans l'historique : personne n'y travaille, rien ne pulse. */
+.sdd.past .sdd-sq {
+  animation: none;
+}
+
+/* ‹ à gauche de « Plan », date et › ancrés à droite. */
+.sdd-pager {
+  display: flex;
+  align-items: center;
   flex: none;
-  background: var(--vscode-badge-background);
-  color: var(--vscode-badge-foreground);
-  border-radius: 7px;
-  padding: 0 4px;
+  margin-left: auto;
+}
+
+.sdd-when {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: 0.8;
+}
+
+/* Flèches ‹ › : chevrons nus, bleu de lien quand elles mènent à un plan, grisées sinon, à la même place. */
+.sdd-nav,
+.sdd-nav-off {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 12px;
+}
+
+.sdd-nav {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--vscode-textLink-foreground);
+  cursor: pointer;
+}
+
+.sdd-nav:hover {
+  color: var(--vscode-textLink-activeForeground);
+}
+
+.sdd-nav-off {
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.35;
+}
+
+.sdd-chevron {
+  display: block;
+  width: 8px;
+  height: 8px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Accès discret aux anciens plans quand aucun plan n'est affiché. */
+.sdd-history {
+  display: flex;
+  align-items: center;
+  font-size: 9px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.sdd-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+
+.sdd-task {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 10px;
+  padding: 0.5px 0;
+}
+
+.sdd-tick {
+  flex: none;
   font-size: 8px;
-  text-transform: lowercase;
+}
+
+.sdd-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Chiffres des agents de la tâche : alignés à droite, le titre s'efface avant eux. */
+.sdd-figures {
+  flex: none;
+  margin-left: auto;
+  padding-left: 8px;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--vscode-descriptionForeground);
+}
+
+.sdd-task.done .sdd-text {
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.75;
+}
+
+.sdd-task.doing .sdd-text {
+  color: var(--vscode-foreground);
+  font-weight: 600;
+}
+
+.sdd-task.review .sdd-text {
+  color: var(--vscode-foreground);
+}
+
+.sdd-task.pending .sdd-text {
+  color: var(--vscode-descriptionForeground);
 }
 
 /* Liste de tâches (TodoWrite) : « où en est » le travail de la session. */
@@ -285,21 +468,14 @@ body {
 .agents li > .cross,
 .agents li > .agent-idx,
 .agents li > .gauge,
-.agents li > .agent-left,
+.agents li > .agent-verb,
 .agents li > .agent-desc {
   margin-top: 2px;
 }
 
-/* Colonne de gauche d'un agent : tag de type, verbe d'activité en dessous. */
-.agent-left {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-}
-
+/* Verbe d'activité d'un agent qui tourne, juste à droite de son titre. */
 .agent-verb {
+  flex: none;
   font-size: 9px;
   color: var(--vscode-descriptionForeground);
   white-space: nowrap;
@@ -342,9 +518,9 @@ body {
   color: var(--vscode-descriptionForeground);
 }
 
-/* Libellé sur 2 lignes maximum ; le texte complet reste lisible au survol (title). */
+/* Libellé sur 2 lignes maximum ; le texte complet reste lisible au survol (title). Il ne s'étire pas : le verbe le suit. */
 .agent-label {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   display: -webkit-box;

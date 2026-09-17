@@ -2,12 +2,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { extractLocalUrl } from './localUrl';
 import { parseWorkflowMeta } from './workflowMeta';
+import { findSddRuns, resetSddCaches, sddTaskOfPrompt } from './sdd';
 import type {
   AgentNode,
   AgentReport,
   ProjectNode,
   PromptCacheInfo,
   SessionNode,
+  SddRun,
+  SddTaskLink,
   SessionRegistryEntry,
   TodoItem,
   TodoStatus,
@@ -136,6 +139,11 @@ export function scan(options: ScanOptions): ProjectNode[] {
       todosCache.delete(key);
     }
   }
+  for (const key of retiredSddCache.keys()) {
+    if (!liveSessionIds.has(key)) {
+      retiredSddCache.delete(key);
+    }
+  }
   for (const key of backgroundCache.keys()) {
     if (!liveSessionIds.has(key)) {
       backgroundCache.delete(key);
@@ -149,6 +157,11 @@ export function scan(options: ScanOptions): ProjectNode[] {
   for (const key of deepPromptIdCache.keys()) {
     if (!seenTranscripts.has(key)) {
       deepPromptIdCache.delete(key);
+    }
+  }
+  for (const key of humanPromptCache.keys()) {
+    if (!seenTranscripts.has(key)) {
+      humanPromptCache.delete(key);
     }
   }
   for (const key of journalFailedCache.keys()) {
@@ -290,6 +303,8 @@ export interface TailMeta {
   agentReports?: Map<string, AgentReportRecord>;
   /** Texte de la ligne assistant synthétique (isApiErrorMessage) si c'est la dernière réponse de la fenêtre : l'API a refusé la requête. */
   apiError?: string;
+  /** Date du dernier prompt tapé par l'humain dans la fenêtre (`origin.kind` = `human`, Claude Code ≥ 2.1.263). */
+  lastHumanPromptAt?: number;
 }
 
 interface BackgroundStart {
@@ -308,6 +323,7 @@ interface TailAnalysis {
   effort?: string;
   cache?: PromptCacheInfo | null;
   apiError?: string;
+  lastHumanPromptAt?: number;
 }
 
 type JsonRecord = Record<string, unknown>;
@@ -432,6 +448,7 @@ function analyzeTail(tail: string): TailAnalysis {
   let cache: CacheTrack | undefined;
   let compactedAt: number | undefined;
   let apiError: string | undefined;
+  let lastHumanPromptAt: number | undefined;
   for (const line of tail.split('\n')) {
     let record: unknown;
     try {
@@ -485,6 +502,9 @@ function analyzeTail(tail: string): TailAnalysis {
       }
       last = { kind: 'assistant', since, stopReason: message?.stop_reason };
     } else if (record.type === 'user') {
+      if (isHumanPrompt(record) && Number.isFinite(since)) {
+        lastHumanPromptAt = since;
+      }
       if (Array.isArray(content)) {
         for (const block of content) {
           if (!isRecord(block) || block.type !== 'tool_result' || typeof block.tool_use_id !== 'string') {
@@ -510,7 +530,13 @@ function analyzeTail(tail: string): TailAnalysis {
     effort,
     cache: cacheInfo(cache, compactedAt),
     apiError,
+    lastHumanPromptAt,
   };
+}
+
+/** Prompt tapé par l'humain, par opposition aux notifications de fin de tâche livrées à l'agent sous forme de ligne user. */
+function isHumanPrompt(record: JsonRecord): boolean {
+  return isRecord(record.origin) && record.origin.kind === 'human';
 }
 
 const TODO_STATUSES = new Set<TodoStatus>(['pending', 'in_progress', 'completed']);
@@ -745,6 +771,114 @@ function readLastPromptIdDeep(filePath: string, mtimeMs: number): string | undef
   return promptId;
 }
 
+/**
+ * Date du dernier prompt humain, quand un long tour l'a chassé de la queue : aucune distance maximale.
+ * Par transcript, on retient jusqu'où il a été lu ; seuls les octets ajoutés depuis sont relus.
+ */
+const HUMAN_PROMPT_CHUNK_BYTES = 1024 * 1024;
+const humanPromptCache = new Map<string, { scannedSize: number; at?: number }>();
+
+function readLastHumanPromptAt(filePath: string, size: number): number | undefined {
+  const cached = humanPromptCache.get(filePath);
+  const resumed = cached !== undefined && cached.scannedSize <= size ? cached : undefined;
+  const found = findLastHumanPrompt(filePath, resumed?.scannedSize ?? 0, size);
+  if (found === undefined) {
+    return resumed?.at;
+  }
+  const at = found.at ?? resumed?.at;
+  humanPromptCache.set(filePath, { scannedSize: found.end, at });
+  return at;
+}
+
+/**
+ * Remonte [start, size) par blocs jusqu'au premier prompt humain rencontré, donc le plus récent.
+ * `start` tombe en début de ligne ; `end` suit la dernière ligne complète, une ligne en cours d'écriture sera relue.
+ */
+function findLastHumanPrompt(filePath: string, start: number, size: number): { at?: number; end: number } | undefined {
+  let fd: number;
+  try {
+    fd = fs.openSync(filePath, 'r');
+  } catch {
+    return undefined;
+  }
+  try {
+    let end: number | undefined;
+    let cursor = size;
+    // Début de ligne lu, dont la suite est dans le bloc précédent.
+    let carry = Buffer.alloc(0);
+    while (cursor > start) {
+      const chunkStart = Math.max(start, cursor - HUMAN_PROMPT_CHUNK_BYTES);
+      const chunk = Buffer.alloc(cursor - chunkStart);
+      fs.readSync(fd, chunk, 0, chunk.length, chunkStart);
+      let bytes = Buffer.concat([chunk, carry]);
+      cursor = chunkStart;
+      if (end === undefined) {
+        const lastNewline = bytes.lastIndexOf(0x0a);
+        if (lastNewline === -1 && chunkStart > start) {
+          carry = bytes;
+          continue;
+        }
+        end = chunkStart + lastNewline + 1;
+        bytes = bytes.subarray(0, lastNewline + 1);
+      }
+      if (chunkStart > start) {
+        const firstNewline = bytes.indexOf(0x0a);
+        carry = bytes.subarray(0, firstNewline + 1);
+        bytes = bytes.subarray(firstNewline + 1);
+      }
+      const at = lastHumanPromptIn(bytes.toString('utf8'));
+      if (at !== undefined) {
+        return { at, end };
+      }
+    }
+    return { end: end ?? start };
+  } catch {
+    return undefined;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function lastHumanPromptIn(text: string): number | undefined {
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].includes('"human"')) {
+      continue;
+    }
+    try {
+      const record: unknown = JSON.parse(lines[i]);
+      if (isRecord(record) && record.type === 'user' && isHumanPrompt(record) && typeof record.timestamp === 'string') {
+        const time = Date.parse(record.timestamp);
+        if (Number.isFinite(time)) {
+          return time;
+        }
+      }
+    } catch {
+      // Ligne en cours d'écriture.
+    }
+  }
+  return undefined;
+}
+
+/** Plan fini retiré de la card, par session : le dossier de son workspace. Collant, pour qu'une écriture ultérieure ne le ramène pas. */
+const retiredSddCache = new Map<string, string>();
+
+/** Un plan fini quitte la card dès qu'un prompt humain suit la dernière écriture de son workspace : on parle d'autre chose. */
+function isRetiredSdd(sessionId: string, run: SddRun, lastHumanPromptAt: () => number | undefined): boolean {
+  if (retiredSddCache.get(sessionId) === run.dir) {
+    return true;
+  }
+  if (!run.finalReview) {
+    return false;
+  }
+  const promptAt = lastHumanPromptAt();
+  if (promptAt === undefined || promptAt <= run.updatedAt) {
+    return false;
+  }
+  retiredSddCache.set(sessionId, run.dir);
+  return true;
+}
+
 const DESCRIPTION_READ_BYTES = 8 * 1024;
 /** Assez long pour un tooltip lisible ; l'ellipse d'affichage est faite en CSS. */
 const DESCRIPTION_MAX_LENGTH = 500;
@@ -807,6 +941,30 @@ export function extractDescription(filePath: string): string | undefined {
   return firstLine(extractPrompt(filePath));
 }
 
+/** De quoi lire en entier le prompt d'un agent du contrôleur SDD (6 à 9 Ko constatés), que la lecture du libellé tronque. */
+const PROMPT_LINE_READ_BYTES = 64 * 1024;
+
+/**
+ * Tâche SDD de l'agent, lue dans son prompt — la première ligne du transcript, immuable. null : aucune tâche nommée ;
+ * undefined : ligne pas encore complète sur le disque, à relire.
+ */
+function readSddTaskLink(filePath: string): SddTaskLink | null | undefined {
+  const head = readChunk(filePath, 'head', PROMPT_LINE_READ_BYTES);
+  const end = head?.indexOf('\n') ?? -1;
+  if (head === undefined || end === -1) {
+    return undefined;
+  }
+  try {
+    const record: unknown = JSON.parse(head.slice(0, end));
+    if (isRecord(record) && record.type === 'user' && isRecord(record.message)) {
+      return sddTaskOfPrompt(resultText(record.message.content)) ?? null;
+    }
+  } catch {
+    // Première ligne illisible : pas un prompt.
+  }
+  return null;
+}
+
 interface TranscriptMeta {
   mtimeMs: number;
   /** Prompt de l'agent (premier message user), borné par la lecture en tête. */
@@ -826,6 +984,7 @@ interface TranscriptMeta {
   agentReports: Map<string, AgentReportRecord> | undefined;
   /** Raison d'arrêt quand le transcript finit sur un refus de l'API (texte écrit par Claude Code). */
   failure: string | undefined;
+  sddTask: SddTaskLink | null | undefined;
 }
 
 interface AgentMetaFile {
@@ -897,6 +1056,7 @@ function readTranscriptMeta(filePath: string, mtimeMs: number): TranscriptMeta {
     toolUseIds: tailMeta.toolUseIds ?? [],
     agentReports: tailMeta.agentReports,
     failure: tailMeta.apiError,
+    sddTask: cached?.sddTask !== undefined ? cached.sddTask : readSddTaskLink(filePath),
   };
   transcriptMetaCache.set(filePath, meta);
   return meta;
@@ -943,6 +1103,7 @@ function scanAgentsDir(
         toolUseId: meta.toolUseId,
         parentAgentId: meta.parentAgentId,
         failure: meta.failure,
+        ...(meta.sddTask ? { sddTask: meta.sddTask } : {}),
       });
       spawnedOut?.set(id, new Set(meta.toolUseIds));
       if (meta.prompt !== undefined) {
@@ -1690,11 +1851,13 @@ function buildSessionNode(
   }
 
   const transcriptPath = path.join(projectDir, `${entry.sessionId}.jsonl`);
+  let lastHumanPromptAt = (): number | undefined => undefined;
   try {
     const stat = fs.statSync(transcriptPath);
     seenTranscripts.add(transcriptPath);
     session.lastActivity = stat.mtimeMs;
     const meta = readSessionTailMeta(transcriptPath, stat.mtimeMs);
+    lastHumanPromptAt = () => meta.lastHumanPromptAt ?? readLastHumanPromptAt(transcriptPath, stat.size);
     session.activity = meta.activity;
     // Session reprise (--resume) : un prompt sans réponse ou un outil sans résultat datant d'avant le démarrage
     // du processus ne sont plus en cours — sans quoi la carte « réfléchit » depuis des jours.
@@ -1779,10 +1942,19 @@ function buildSessionNode(
     log,
   );
 
+  const allAgents = [...session.agents, ...session.workflows.flatMap((workflow) => workflow.agents)];
+
+  // Un run subagent-driven development n'écrit aucune TodoWrite : ses tâches se lisent dans son workspace,
+  // et une tâche dont un agent a reçu les fichiers est lancée.
+  const plans = findSddRuns(entry.cwd, allAgents.flatMap((agent) => (agent.sddTask ? [agent.sddTask] : [])));
+  const [current] = plans;
+  session.sdd = current && !isRetiredSdd(entry.sessionId, current, lastHumanPromptAt) ? current : undefined;
+  session.sddPlans = plans.length > 0 ? plans : undefined;
+
   // Une session qui délègue n'écrit plus dans son propre transcript : son activité
   // réelle est celle de ses agents. On agrège statut et dernière activité.
   let delegating = false;
-  for (const agent of [...session.agents, ...session.workflows.flatMap((workflow) => workflow.agents)]) {
+  for (const agent of allAgents) {
     if (session.lastActivity === undefined || agent.lastActivity > session.lastActivity) {
       session.lastActivity = agent.lastActivity;
     }
@@ -1808,8 +1980,11 @@ export function clearScannerCaches(): void {
   sessionEffortCache.clear();
   cacheInfoCache.clear();
   todosCache.clear();
+  resetSddCaches();
+  retiredSddCache.clear();
   sessionTailCache.clear();
   deepPromptIdCache.clear();
+  humanPromptCache.clear();
   workflowJsonInfoCache.clear();
   workflowInfoCache.clear();
   siblingsProbed.clear();

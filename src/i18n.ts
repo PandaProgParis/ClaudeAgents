@@ -25,12 +25,35 @@ export interface LocaleStrings {
   backgroundTask: string;
   /** Détail déplié d'un workflow : « 2 agents », « Phases prévues ». */
   agentCount: (count: number) => string;
+  agentType: (type: string) => string;
   phases: string;
   /** État d'un agent en échec (infobulle d'un carré). */
   failed: string;
   /** Compteurs de la ligne d'un workflow : « 3 en cours », « 1 en échec ». */
   running: (count: number) => string;
   failedCount: (count: number) => string;
+  /** Bloc des tâches d'un plan exécuté en subagent-driven development. */
+  sddTask: (number: number, title?: string) => string;
+  sddStates: Record<'done' | 'doing' | 'review' | 'pending', string>;
+  /** Bandeau « 1 en revue » : implémentation rendue, achèvement non attesté. */
+  sddInReview: (count: number) => string;
+  sddArtifacts: Record<'brief' | 'report' | 'review', string>;
+  sddFix: (round: number) => string;
+  sddCount: (done: number, total?: number) => string;
+  /** Infobulle du ✓ d'un plan fini. */
+  sddFinished: string;
+  /** Intitulé du bloc, et son infobulle : nom du plan et origine des tâches. */
+  sddLabel: string;
+  sddPlanTitle: (plan: string) => string;
+  /** Historique des plans du dossier : flèches, ligne d'accès quand aucun plan n'est affiché, date d'un ancien plan. */
+  sddPrevious: string;
+  sddNext: string;
+  sddNoPrevious: string;
+  sddNoNext: string;
+  sddTokensTotal: (tokens: string) => string;
+  sddHistory: (count: number) => string;
+  sddUpdated: (at: number) => string;
+  sddUpdatedTitle: string;
   /** Carte des agents : « 5 terminés », « 98 outils » (infobulle), croix de repli. */
   finishedCount: (count: number) => string;
   toolUses: (count: number) => string;
@@ -92,6 +115,10 @@ export interface LocaleStrings {
   };
 }
 
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
 export const STRINGS: Record<Locale, LocaleStrings> = {
   fr: {
     empty: 'Aucune session Claude en cours.',
@@ -101,12 +128,33 @@ export const STRINGS: Record<Locale, LocaleStrings> = {
     thinking: '💭 réfléchit',
     backgroundTask: 'tâche en arrière-plan',
     agentCount: (count) => (count === 1 ? '1 agent' : `${count} agents`),
+    agentType: (type) => `type : ${type}`,
     phases: 'Phases prévues',
     failed: 'en échec',
     running: (count) => `${count} en cours`,
     failedCount: (count) => `${count} en échec`,
     finishedCount: (count) => (count === 1 ? '1 terminé' : `${count} terminés`),
     toolUses: (count) => (count === 1 ? '1 outil' : `${count} outils`),
+    sddTask: (number, title) => (title === undefined ? `Tâche ${number}` : `Tâche ${number} : ${title}`),
+    sddStates: { done: 'terminée', doing: 'en cours', review: 'en revue', pending: 'à faire' },
+    sddInReview: (count) => `${count} en revue`,
+    sddArtifacts: { brief: 'brief', report: 'rapport', review: 'revue' },
+    sddFix: (round) => `correction ${round}`,
+    sddCount: (done, total) => (total === undefined ? `${done} faite${done > 1 ? 's' : ''}` : `${done}/${total}`),
+    sddFinished: 'Plan terminé — revue finale présente',
+    sddLabel: 'Plan',
+    sddPlanTitle: (plan) => `${plan} — plan exécuté par sous-agents (superpowers)`,
+    sddPrevious: 'Plan précédent',
+    sddNext: 'Plan suivant',
+    sddNoPrevious: 'Aucun plan précédent',
+    sddNoNext: 'Aucun plan plus récent',
+    sddTokensTotal: (tokens) => `${tokens} jetons cumulés`,
+    sddHistory: (count) => (count === 1 ? '1 plan' : `${count} plans`),
+    sddUpdated: (at) => {
+      const date = new Date(at);
+      return `${pad2(date.getDate())}/${pad2(date.getMonth() + 1)} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+    },
+    sddUpdatedTitle: 'Dernière écriture du plan',
     mapClose: 'Replier la carte des agents',
     cacheWarm: (minutes) => `Cache d’invite chaud, encore ${minutes} min`,
     cacheCold: (idle) => `Cache d’invite probablement expiré · inactif depuis ${idle}`,
@@ -184,12 +232,33 @@ export const STRINGS: Record<Locale, LocaleStrings> = {
     thinking: '💭 thinking',
     backgroundTask: 'background task',
     agentCount: (count) => (count === 1 ? '1 agent' : `${count} agents`),
+    agentType: (type) => `type: ${type}`,
     phases: 'Planned phases',
     failed: 'failed',
     running: (count) => `${count} running`,
     failedCount: (count) => `${count} failed`,
     finishedCount: (count) => `${count} finished`,
     toolUses: (count) => (count === 1 ? '1 tool call' : `${count} tool calls`),
+    sddTask: (number, title) => (title === undefined ? `Task ${number}` : `Task ${number}: ${title}`),
+    sddStates: { done: 'done', doing: 'in progress', review: 'in review', pending: 'to do' },
+    sddInReview: (count) => `${count} in review`,
+    sddArtifacts: { brief: 'brief', report: 'report', review: 'review' },
+    sddFix: (round) => `fix round ${round}`,
+    sddCount: (done, total) => (total === undefined ? `${done} done` : `${done}/${total}`),
+    sddFinished: 'Plan finished — final review present',
+    sddLabel: 'Plan',
+    sddPlanTitle: (plan) => `${plan} — plan run by subagents (superpowers)`,
+    sddPrevious: 'Previous plan',
+    sddNext: 'Next plan',
+    sddNoPrevious: 'No previous plan',
+    sddNoNext: 'No newer plan',
+    sddTokensTotal: (tokens) => `${tokens} tokens in total`,
+    sddHistory: (count) => (count === 1 ? '1 plan' : `${count} plans`),
+    sddUpdated: (at) => {
+      const date = new Date(at);
+      return `${pad2(date.getMonth() + 1)}/${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+    },
+    sddUpdatedTitle: 'Last write to the plan',
     mapClose: 'Collapse the agent map',
     cacheWarm: (minutes) => `Prompt cache warm, about ${minutes} min left`,
     cacheCold: (idle) => `Prompt cache likely expired · idle ${idle}`,

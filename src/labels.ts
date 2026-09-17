@@ -1,4 +1,4 @@
-import type { AgentNode, WorkflowNode } from './types';
+import type { AgentNode, SddTask, WorkflowNode } from './types';
 import { abbreviateModel, formatDuration, formatRelativeTime, formatTokens } from './format';
 import { STRINGS, type Locale, type LocaleStrings } from './i18n';
 
@@ -119,4 +119,57 @@ export function backgroundTaskLabel(command: string): string {
 /** Libellé affiché : la description écrite par l'agent (lisible), sinon la commande nettoyée. */
 export function backgroundTaskTitle(task: { command: string; description?: string }): string {
   return task.description ? shorten(task.description.trim()) : backgroundTaskLabel(task.command);
+}
+
+/**
+ * Infobulle d'une tâche SDD : son numéro, son titre s'il a pu être lu, son état, puis les artefacts
+ * réellement présents dans le workspace — « Tâche 9 : Script SQL — terminée · brief, rapport, revue, correction 1 ».
+ */
+export function sddTaskTitle(task: SddTask, locale: Locale = 'fr'): string {
+  const strings = STRINGS[locale];
+  const artifacts = [
+    ...(task.brief ? [strings.sddArtifacts.brief] : []),
+    ...(task.report ? [strings.sddArtifacts.report] : []),
+    ...(task.review ? [strings.sddArtifacts.review] : []),
+    ...(task.fixRound !== undefined ? [strings.sddFix(task.fixRound)] : []),
+  ];
+  const head = `${strings.sddTask(task.number, task.title)} — ${strings.sddStates[task.state]}`;
+  return artifacts.length > 0 ? `${head} · ${artifacts.join(', ')}` : head;
+}
+
+export interface SddTaskFigures {
+  count: number;
+  durationMs: number;
+  tokens?: number;
+}
+
+/**
+ * Chiffres des agents d'une tâche de plan (ceux dont le prompt nomme ses fichiers). Durée du premier départ
+ * à la dernière fin, pas la somme : implémentation et revue d'une même tâche se chevauchent souvent.
+ */
+export function sddTaskFigures(agents: AgentNode[], plan: string, number: number, now: number): SddTaskFigures | undefined {
+  const own = agents.filter((agent) => agent.sddTask?.plan === plan && agent.sddTask.number === number);
+  if (own.length === 0) {
+    return undefined;
+  }
+  const start = Math.min(...own.map((agent) => agent.createdAt));
+  const end = Math.max(...own.map((agent) => agent.createdAt + agentDuration(agent, now)));
+  const tokens = own.map(agentTokens).filter((value): value is number => value !== undefined);
+  return {
+    count: own.length,
+    durationMs: end - start,
+    ...(tokens.length > 0 ? { tokens: tokens.reduce((sum, value) => sum + value, 0) } : {}),
+  };
+}
+
+/** Infobulle : « 2 agents · 42 min · 610k jetons cumulés » ; ligne de la liste, où la place manque : « 🤖×2 · 42 min · 610k ». */
+export function sddFiguresText(figures: SddTaskFigures, locale: Locale, form: 'tooltip' | 'line'): string {
+  const strings = STRINGS[locale];
+  const tooltip = form === 'tooltip';
+  const parts = [tooltip ? strings.agentCount(figures.count) : `🤖×${figures.count}`, formatDuration(figures.durationMs)];
+  if (figures.tokens !== undefined) {
+    const tokens = formatTokens(figures.tokens, locale);
+    parts.push(tooltip ? strings.sddTokensTotal(tokens) : tokens);
+  }
+  return parts.join(' · ');
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { escapeHtml, renderApp } from './render';
 import type { AgentNode, FinishedAgentSettings, ProjectNode, SessionNode } from '../types';
+import type { SddRun } from '../types';
 
 const NOW = 1_800_000_000_000;
 const SETTINGS: FinishedAgentSettings = { mode: 'temporarily', retentionSeconds: 60 };
@@ -39,6 +40,22 @@ function session(overrides: Partial<SessionNode> = {}): SessionNode {
 function project(sessions: SessionNode[], name = 'marketing'): ProjectNode {
   return { cwd: 'c:\\dev\\' + name, name, hasActiveSession: true, sessions };
 }
+
+/** Run SDD de référence : deux tâches faites, une en cours, une à faire, sur un plan de quatre. */
+const SDD: SddRun = {
+  dir: 'c:\\dev\\marketing\\.superpowers\\sdd\\mon-plan',
+  plan: 'mon-plan',
+  totalCount: 4,
+  doneCount: 2,
+  finalReview: false,
+  updatedAt: NOW - 60_000,
+  tasks: [
+    { number: 1, state: 'done', title: 'Socle commun', brief: true, report: true, review: true, fixRound: 1 },
+    { number: 2, state: 'done', title: 'Lecture du plan', brief: true, report: true, review: true },
+    { number: 3, state: 'doing', title: 'Endpoint bougies', brief: true, report: false, review: false },
+    { number: 4, state: 'pending', title: 'Datafeed porté', brief: false, report: false, review: false },
+  ],
+};
 
 describe('escapeHtml', () => {
   it('neutralise les balises et quotes', () => {
@@ -411,12 +428,14 @@ describe('renderApp', () => {
     expect(html).toContain('<span class="branch">⎇ develop</span>');
   });
 
-  it("affiche le type du sous-agent en badge, sans le préfixe plugin", () => {
+  // Presque toujours « general-purpose », le type par défaut : en badge il prenait la place du titre.
+  it('donne le type du sous-agent dans l’infobulle du titre, pas en badge', () => {
     const html = renderApp(
       [project([session({ agents: [agent({ agentType: 'superpowers:code-reviewer' })] })])],
       { now: NOW, settings: SETTINGS },
     );
-    expect(html).toContain('<span class="agent-type">code-reviewer</span>');
+    expect(html).not.toContain('agent-type');
+    expect(html).toContain('<span class="agent-label" title="Analyse des bugs&#10;type : superpowers:code-reviewer">');
   });
 
   it('signale le contexte critique par un ⚠ et colore le libellé selon le niveau', () => {
@@ -534,15 +553,12 @@ describe('renderApp', () => {
     expect(html).not.toContain('class="question"');
   });
 
-  it("affiche le verbe d'activité d'un agent actif sous le tag de gauche", () => {
+  it("affiche le verbe d'activité d'un agent actif juste à droite de son titre", () => {
     const html = renderApp(
       [project([session({ agents: [agent({ agentType: 'claude', lastTool: 'Bash' })] })])],
       { now: NOW, settings: SETTINGS },
     );
-    expect(html).toContain(
-      '<span class="agent-left"><span class="agent-type">claude</span><span class="agent-verb">⏵ commande</span></span>',
-    );
-    expect(html).not.toContain('⏵ commande</span>' + '<span class="agent-desc"');
+    expect(html).toMatch(/Analyse des bugs<\/span><span class="agent-verb">⏵ commande<\/span><span class="agent-desc">/);
   });
 
   it("n'affiche pas de verbe pour un agent terminé ni sans tag quand rien à montrer", () => {
@@ -598,6 +614,302 @@ describe('renderApp', () => {
   it("n'affiche pas de todo-list sans tâches", () => {
     const html = renderApp([project([session()])], { now: NOW, settings: SETTINGS });
     expect(html).not.toContain('class="todos"');
+  });
+
+  it('affiche les tâches SDD en carrés, avec le compte et le total du plan', () => {
+    const html = renderApp([project([session({ sdd: SDD })])], { now: NOW, settings: SETTINGS });
+    expect(html).toContain('class="sdd"');
+    expect(html).toContain('2/4');
+    expect(html).toContain('class="sdd-sq done"');
+    expect(html).toContain('class="sdd-sq doing"');
+    expect(html).toContain('class="sdd-sq pending"');
+  });
+
+  it('énonce dans l’infobulle du carré le titre de la tâche et ses artefacts', () => {
+    const html = renderApp([project([session({ sdd: SDD })])], { now: NOW, settings: SETTINGS });
+    expect(html).toContain('Tâche 1 : Socle commun — terminée · brief, rapport, revue, correction 1');
+    expect(html).toContain('Tâche 3 : Endpoint bougies — en cours · brief');
+    expect(html).toContain('Tâche 4 : Datafeed porté — à faire');
+  });
+
+  it('reste replié par défaut : les carrés, pas la liste', () => {
+    const html = renderApp([project([session({ sdd: SDD })])], { now: NOW, settings: SETTINGS });
+    expect(html).toContain('class="sdd-squares sdd-toggle"');
+    expect(html).not.toContain('class="sdd-list"');
+  });
+
+  it('déplie la liste des tâches pour la session dépliée', () => {
+    const html = renderApp([project([session({ sdd: SDD })])], {
+      now: NOW,
+      settings: SETTINGS,
+      expandedSdd: new Set(['aaaaaaaa-1111-2222-3333-444444444444']),
+    });
+    expect(html).toContain('class="sdd-list"');
+    expect(html).toContain('Endpoint bougies');
+  });
+
+  it('échappe le titre d’une tâche', () => {
+    const sdd = { ...SDD, tasks: [{ ...SDD.tasks[0], title: 'Moteur <image>' }] };
+    const html = renderApp([project([session({ sdd })])], {
+      now: NOW,
+      settings: SETTINGS,
+      expandedSdd: new Set(['aaaaaaaa-1111-2222-3333-444444444444']),
+    });
+    expect(html).toContain('Moteur &lt;image&gt;');
+    expect(html).not.toContain('Moteur <image>');
+  });
+
+  it('sans total lisible dans le plan, annonce le nombre de tâches faites sans inventer de total', () => {
+    const sdd = { ...SDD, totalCount: undefined };
+    const html = renderApp([project([session({ sdd })])], { now: NOW, settings: SETTINGS });
+    expect(html).toContain('2 faites');
+    expect(html).not.toContain('2/4');
+  });
+
+  it("n'affiche pas de bloc SDD sans run", () => {
+    const html = renderApp([project([session()])], { now: NOW, settings: SETTINGS });
+    expect(html).not.toContain('class="sdd"');
+  });
+
+  it('distingue la tâche dont le rapport est rendu mais l’achèvement non attesté', () => {
+    const sdd: SddRun = {
+      ...SDD,
+      doneCount: 3,
+      tasks: [
+        ...SDD.tasks.slice(0, 3).map((task) => ({ ...task, state: 'done' as const })),
+        { number: 4, state: 'review', title: 'Datafeed porté', brief: true, report: true, review: true },
+      ],
+    };
+    const html = renderApp([project([session({ sdd })])], { now: NOW, settings: SETTINGS });
+    expect(html).toContain('class="sdd-sq review"');
+    expect(html).toContain('Tâche 4 : Datafeed porté — en revue · brief, rapport, revue');
+    expect(html).toContain('3/4');
+    expect(html).toContain('1 en revue');
+  });
+
+  describe('chiffres des agents de chaque tâche', () => {
+    const MIN = 60_000;
+    const OPEN = { expandedSdd: new Set(['aaaaaaaa-1111-2222-3333-444444444444']) };
+    function agent(id: string, sddTask: AgentNode['sddTask'], figures: Partial<AgentNode>): AgentNode {
+      return { id, filePath: `${id}.jsonl`, status: 'finished', createdAt: NOW, lastActivity: NOW, sddTask, ...figures };
+    }
+    // Implémentation de la tâche 1, et sa revue lancée pendant qu'elle tournait encore : 10 min de chevauchement.
+    const IMPL = agent('agent-impl', { plan: 'mon-plan', number: 1 }, {
+      createdAt: NOW - 90 * MIN,
+      report: { tokens: 400_000, toolUses: 30, durationMs: 30 * MIN },
+    });
+    const REVIEW = agent('agent-review', { plan: 'mon-plan', number: 1 }, {
+      createdAt: NOW - 70 * MIN,
+      report: { tokens: 210_000, toolUses: 12, durationMs: 22 * MIN },
+    });
+    const render = (agents: AgentNode[], options = {}) =>
+      renderApp([project([session({ sdd: SDD, agents })])], { now: NOW, settings: SETTINGS, ...options });
+
+    it('donne en infobulle le nombre d’agents, la durée du premier départ à la dernière fin et les jetons cumulés', () => {
+      const html = render([IMPL, REVIEW]);
+      // 90 min avant → 48 min avant : 42 min, pas la somme 52 min des deux durées.
+      expect(html).toContain('Tâche 1 : Socle commun — terminée · brief, rapport, revue, correction 1 · 2 agents · 42 min · 610k jetons cumulés');
+    });
+
+    it('reporte les chiffres sur la ligne de la tâche en abrégé, le nombre d’agents en 🤖×N', () => {
+      const html = render([IMPL, REVIEW], OPEN);
+      expect(html).toMatch(/Socle commun<\/span><span class="sdd-figures">🤖×2 · 42 min · 610k<\/span>/);
+    });
+
+    it('fait courir la durée d’un agent encore en cours, avec son contexte actuel', () => {
+      const running = agent('agent-run', { plan: 'mon-plan', number: 3 }, {
+        status: 'active',
+        createdAt: NOW - 4 * MIN,
+        contextTokens: 89_000,
+      });
+      const html = render([running]);
+      expect(html).toContain('Tâche 3 : Endpoint bougies — en cours · brief · 1 agent · 4 min · 89k jetons cumulés');
+    });
+
+    it('ne compte ni les agents d’un autre plan, ni ceux d’une autre tâche, ni ceux sans tâche', () => {
+      const html = render([
+        agent('agent-autre-plan', { plan: 'autre-plan', number: 1 }, { report: { tokens: 1, toolUses: 1, durationMs: MIN } }),
+        agent('agent-tache-2', { plan: 'mon-plan', number: 2 }, { report: { tokens: 1, toolUses: 1, durationMs: MIN } }),
+        agent('agent-libre', undefined, { report: { tokens: 1, toolUses: 1, durationMs: MIN } }),
+      ]);
+      expect(html).toContain('title="Tâche 1 : Socle commun — terminée · brief, rapport, revue, correction 1"');
+    });
+
+    it('une tâche sans agent n’a pas de chiffres', () => {
+      const html = render([IMPL], OPEN);
+      expect(html).toContain('title="Tâche 4 : Datafeed porté — à faire"');
+      expect(html).not.toMatch(/Datafeed porté<\/span><span class="sdd-figures">/);
+    });
+  });
+
+  describe('historique des plans', () => {
+    const SID = 'aaaaaaaa-1111-2222-3333-444444444444';
+    // Dates construites en heure locale : le rendu formate en heure locale, le test ne dépend pas du fuseau.
+    const OLD: SddRun = {
+      dir: 'c:\\dev\\marketing\\.superpowers\\sdd\\ancien',
+      plan: 'ancien',
+      totalCount: 2,
+      doneCount: 1,
+      finalReview: false,
+      updatedAt: new Date(2026, 8, 12, 18, 26).getTime(),
+      tasks: [
+        { number: 1, state: 'done', title: 'A', brief: true, report: true, review: true },
+        { number: 2, state: 'doing', title: 'B', brief: true, report: false, review: false },
+      ],
+    };
+    const OLDER: SddRun = {
+      ...OLD,
+      dir: 'c:\\dev\\marketing\\.superpowers\\sdd\\plus-ancien',
+      plan: 'plus-ancien',
+      updatedAt: new Date(2026, 7, 1, 8, 5).getTime(),
+    };
+    const navTo = (run: SddRun | 'défaut') => `data-sdd-plan="${run === 'défaut' ? '' : run.dir}"`;
+    const render = (overrides: Partial<SessionNode>, viewed?: string) =>
+      renderApp([project([session(overrides)])], {
+        now: NOW,
+        settings: SETTINGS,
+        ...(viewed !== undefined ? { sddViewed: new Map([[SID, viewed]]) } : {}),
+      });
+
+    const OFF_PREV = '<span class="sdd-nav-off" title="Aucun plan précédent">';
+    const OFF_NEXT = '<span class="sdd-nav-off" title="Aucun plan plus récent">';
+
+    it('le plan courant offre ‹ vers le plus récent des anciens, et un › grisé', () => {
+      const html = render({ sdd: SDD, sddPlans: [SDD, OLD] });
+      expect(html).toContain(navTo(OLD));
+      expect(html).toContain(OFF_NEXT);
+      expect(html).not.toContain('Plan suivant');
+    });
+
+    it('sans ancien plan, les deux flèches sont là mais grisées, et le plan reste daté', () => {
+      const current = { ...SDD, updatedAt: new Date(2026, 8, 17, 12, 49).getTime() };
+      const html = render({ sdd: current, sddPlans: [current] });
+      expect(html).not.toContain('<button class="sdd-nav"');
+      expect(html).toContain(OFF_PREV);
+      expect(html).toContain(OFF_NEXT);
+      expect(html).toContain('17/09 12:49');
+    });
+
+    it('sans plan courant, une ligne discrète donne accès aux anciens', () => {
+      const html = render({ sddPlans: [OLD, OLDER] });
+      expect(html).toContain('class="sdd-history"');
+      expect(html).toContain('📋 2 plans');
+      expect(html).toContain(navTo(OLD));
+      expect(html).not.toContain('sdd-squares');
+    });
+
+    it('sur la ligne discrète, ‹ précède « 2 plans » et › grisé reste à droite', () => {
+      const html = render({ sddPlans: [OLD, OLDER] });
+      const at = (text: string) => html.indexOf(text);
+      expect(at('title="Plan précédent"')).toBeLessThan(at('📋 2 plans'));
+      expect(at('📋 2 plans')).toBeLessThan(at('class="sdd-pager"'));
+      expect(at('class="sdd-pager"')).toBeLessThan(at(OFF_NEXT));
+    });
+
+    it('‹ à gauche de « Plan », la date et › à droite du compteur', () => {
+      const html = render({ sddPlans: [OLD, OLDER] }, OLD.dir);
+      const at = (text: string) => html.indexOf(text);
+      expect(at('title="Plan précédent"')).toBeLessThan(at('📋 Plan'));
+      expect(at('📋 Plan')).toBeLessThan(at('1/2'));
+      expect(at('1/2')).toBeLessThan(at('class="sdd-pager"'));
+      expect(at('class="sdd-pager"')).toBeLessThan(at('12/09 18:26'));
+      expect(at('12/09 18:26')).toBeLessThan(at('title="Plan suivant"'));
+    });
+
+    // Un glyphe ‹ › n'occupe qu'une partie de sa boîte et reste petit et bas à toute taille de police.
+    it('dessine les flèches en chevrons vectoriels, pas en glyphes', () => {
+      const html = render({ sddPlans: [OLD, OLDER] }, OLD.dir);
+      expect(html).toContain('<svg class="sdd-chevron"');
+      expect(html).not.toMatch(/[‹›]/);
+    });
+
+    it('un plan fini retiré est l’un de ces anciens plans', () => {
+      const html = render({ sdd: undefined, sddPlans: [{ ...SDD, finalReview: true }] });
+      expect(html).toContain('📋 1 plan');
+    });
+
+    it('sans aucun plan, ni bloc ni ligne', () => {
+      const html = render({});
+      expect(html).not.toContain('sdd-history');
+      expect(html).not.toContain('class="sdd');
+    });
+
+    it('un ancien plan consulté s’affiche daté, sans pulsation, avec ses deux flèches', () => {
+      const html = render({ sddPlans: [OLD, OLDER] }, OLD.dir);
+      expect(html).toContain('class="sdd past"');
+      expect(html).toContain('12/09 18:26');
+      expect(html).toContain('title="ancien — plan exécuté par sous-agents (superpowers)"');
+      expect(html).toContain(navTo(OLDER));
+      expect(html).toContain(navTo('défaut'));
+    });
+
+    // Une flèche grisée n'est pas un .sdd-nav : la webview n'y voit rien à cliquer.
+    it('le plus ancien grise ‹ et garde › vers le plan plus récent', () => {
+      const html = render({ sddPlans: [OLD, OLDER] }, OLDER.dir);
+      expect(html).toContain(navTo(OLD));
+      expect(html).toContain(OFF_PREV);
+      expect(html).not.toContain('title="Plan précédent"');
+    });
+
+    it('› depuis le plus récent des anciens revient au plan courant', () => {
+      const html = render({ sdd: SDD, sddPlans: [SDD, OLD] }, OLD.dir);
+      expect(html).toContain(navTo('défaut'));
+    });
+
+    it('un plan consulté qui a disparu du disque ramène à la position par défaut', () => {
+      const html = render({ sdd: SDD, sddPlans: [SDD, OLD] }, 'c:\\dev\\supprime');
+      expect(html).not.toContain('class="sdd past"');
+      expect(html).toContain('Endpoint bougies');
+    });
+
+    it('le plan courant n’est pas marqué comme passé', () => {
+      const html = render({ sdd: SDD, sddPlans: [SDD, OLD] });
+      expect(html).toContain('class="sdd"');
+    });
+  });
+
+  it('se déplie au clic sur « Plan » ou sur les carrés, sans picto de dépliage', () => {
+    const html = renderApp([project([session({ sdd: SDD })])], { now: NOW, settings: SETTINGS });
+    expect(html).toMatch(/<span class="sdd-toggle">[^]*📋 Plan[^]*2\/4[^]*<\/span><\/div>/);
+    expect(html).toContain('<ul class="sdd-squares sdd-toggle">');
+    expect(html).not.toMatch(/[▸▾]/);
+    expect(html).not.toContain('sdd-caret');
+  });
+
+  it('intitule le bloc « Plan » et donne son nom et son origine en infobulle', () => {
+    const html = renderApp([project([session({ sdd: SDD })])], { now: NOW, settings: SETTINGS });
+    expect(html).toContain('📋 Plan');
+    expect(html).not.toContain('SDD');
+    expect(html).toContain('title="mon-plan — plan exécuté par sous-agents (superpowers)"');
+  });
+
+  it('annonce un plan fini d’un ✓, avec la preuve en infobulle', () => {
+    const tasks = SDD.tasks.map((task) => ({ ...task, state: 'done' as const }));
+    const sdd: SddRun = { ...SDD, tasks, doneCount: 4, finalReview: true };
+    const html = renderApp([project([session({ sdd })])], { now: NOW, settings: SETTINGS });
+    expect(html).toContain('4/4 ✓');
+    expect(html).toContain('Plan terminé — revue finale présente');
+    expect(html).not.toContain('sdd-sq doing');
+    expect(html).not.toContain('sdd-sq review');
+  });
+
+  it('pas de ✓ tant que la revue finale n’est pas là', () => {
+    const html = renderApp([project([session({ sdd: SDD })])], { now: NOW, settings: SETTINGS });
+    expect(html).not.toContain('✓');
+    expect(html).not.toContain('Plan terminé');
+  });
+
+  it('ne parle de revue que lorsqu’une tâche y est', () => {
+    const html = renderApp([project([session({ sdd: SDD })])], { now: NOW, settings: SETTINGS });
+    expect(html).not.toContain('en revue');
+  });
+
+  it("n'affiche pas de bloc SDD quand le run ne porte aucune tâche", () => {
+    const html = renderApp([project([session({ sdd: { ...SDD, tasks: [], doneCount: 0 } })])], {
+      now: NOW,
+      settings: SETTINGS,
+    });
+    expect(html).not.toContain('class="sdd"');
   });
 
   it('pose des data-key stables sur projets, sessions, agents et workflows (morph DOM)', () => {

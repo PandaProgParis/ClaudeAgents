@@ -2,7 +2,7 @@
   "name": "claude-agents",
   "displayName": "Claude Agent Map & Usage",
   "description": "Agent map of every Claude Code session on your machine - sessions, sub-agents, workflows, prompt cache - plus your plan usage with reset countdowns in the sidebar and the status bar. Read-only access to ~/.claude.",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "publisher": "pandaprog",
   "license": "MIT",
   "icon": "assets/icon.png",
