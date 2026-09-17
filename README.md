@@ -59,6 +59,15 @@ Nothing to configure. The extension reads `~/.claude` on the same machine, read-
 - **Failed agent?** Hover it to read why.
 - **Superpowers plans** - each task of a subagent-driven plan as a square, with its agents' time and tokens.
 
+## Superpowers plans
+
+A session running a [superpowers](https://github.com/obra/superpowers) subagent-driven plan gets a `📋 Plan` block: one square per task, the `done/total` count, and when the plan was last written.
+
+- **Task details** - click `📋 Plan` or the squares for the list: ✅ done · 🔵 in progress · 🟡 in review · ⬜ to do, each task with its title and `🤖×2 · 42 min · 610k` - the agents that worked on it, from the first start to the last finish, and their tokens.
+- **Hover a task** for its state and what its workspace holds: brief, report, review, fix round.
+- **Browse plans** - `‹` `›` step through the folder's earlier plans, newest first; `›` all the way brings you back to the current one.
+- **Finished plans step aside** - once the final review is there (`✓`) and you talk to Claude about something else, the block folds into a `📋 N plans` line that keeps them one click away.
+
 ## Plan usage
 
 Your claude.ai limits at the bottom of the view, fed by **[Claude Usage](https://github.com/PandaProgParis/ClaudeUsage)**, a small tray app that reads them for you - no API key.
@@ -90,6 +99,11 @@ Your limits also sit at the far right of the **status bar**, with a live countdo
 | `claudeAgents.usageStatusBar` | `text` | Usage in the status bar: `text` · `rings` · `off` |
 | `claudeAgents.usageStatusBarSide` | `right` | Status bar side: `right` · `left` |
 
+## What's new in 0.9.2
+
+- **Marketplace rating** in the top banner - the real average as stars, the number of reviews on their left.
+- The stars now light up one by one, go dark, then show the real rating.
+
 ## What's new in 0.9.1
 
 - **Superpowers plans** - a session running a [superpowers](https://github.com/obra/superpowers) subagent-driven plan shows its tasks as squares: done, running, in review, to do. Click `📋 Plan` or the squares for the list.
@@ -108,7 +122,7 @@ Your limits also sit at the far right of the **status bar**, with a live countdo
 
 ## Privacy
 
-Read-only on `~/.claude`, never touches `.credentials.json`, no network except a TCP check on `127.0.0.1` to tell a live dev server from a dead one.
+Read-only on `~/.claude`, never touches `.credentials.json`. Two network calls only: a TCP check on `127.0.0.1` to tell a live dev server from a dead one, and - while the view is open, at most every 6 hours - a read of the Marketplace's public reviews to show the extension's rating. Nothing is sent.
 
 ---
 

@@ -46,6 +46,14 @@ describe('parseStateQuery', () => {
     expect(query.locale).toBe('fr');
   });
 
+  it('simule une note du Marketplace passée en ?rating=moyenne,votes ; ignore une valeur invalide', () => {
+    expect(parseStateQuery(new URLSearchParams('rating=4.3,12')).rating).toEqual({ average: 4.3, count: 12 });
+    expect(parseStateQuery(new URLSearchParams('rating=0,0')).rating).toEqual({ average: 0, count: 0 });
+    for (const bogus of ['rating=6,3', 'rating=4.5', 'rating=abc,2', 'rating=4,-1', 'rating=4,1.5']) {
+      expect(parseStateQuery(new URLSearchParams(bogus)), bogus).not.toHaveProperty('rating');
+    }
+  });
+
   it('épingle les dossiers passés en ?ws= (répétable), aucun sinon', () => {
     expect(parseStateQuery(new URLSearchParams('ws=C:/dev/alpha&ws=C:/dev/beta')).pinnedFolders).toEqual([
       'C:/dev/alpha',
@@ -114,6 +122,24 @@ describe('createDevServer', () => {
 
       expect((await fetch(`${base}/package.json`)).status).toBe(404);
       expect((await fetch(`${base}/media/../package.json`)).status).toBe(404);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it('joint à l’état la note lue sur le Marketplace, sauf si l’URL en simule une', async () => {
+    const dir = makeClaudeDir();
+    const server = createDevServer({
+      claudeDir: dir,
+      root: process.cwd(),
+      isPidAlive: () => true,
+      rating: () => ({ average: 5, count: 3 }),
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      expect((await (await fetch(`${base}/state`)).json()).rating).toEqual({ average: 5, count: 3 });
+      expect((await (await fetch(`${base}/state?rating=3.5,40`)).json()).rating).toEqual({ average: 3.5, count: 40 });
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }

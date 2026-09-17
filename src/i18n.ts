@@ -103,6 +103,8 @@ export interface LocaleStrings {
   ratePhrases: string[];
   rateGreeting: (hour: number) => string;
   rateStars: (count: number) => string;
+  /** Infobulle du nombre de votes : moyenne à une décimale et nombre d'avis du Marketplace. */
+  rateVotes: (count: number, average: number) => string;
   /** Verbes d'activité (picto inclus), par famille d'outil. */
   verbs: {
     edit: string;
@@ -213,6 +215,7 @@ export const STRINGS: Record<Locale, LocaleStrings> = {
     ],
     rateGreeting: (hour) => (hour < 6 ? 'Encore debout ? 🌙' : hour < 12 ? 'Bonjour ☀️' : hour < 18 ? 'Bon après-midi 👋' : 'Bonsoir 🌙'),
     rateStars: (count) => (count === 1 ? 'Mettre 1 étoile sur le Marketplace' : `Mettre ${count} étoiles sur le Marketplace`),
+    rateVotes: (count, average) => `${average.toFixed(1).replace('.', ',')} ★ · ${count} avis sur le Marketplace`,
     verbs: {
       edit: '✎ édite',
       run: '⏵ commande',
@@ -317,6 +320,7 @@ export const STRINGS: Record<Locale, LocaleStrings> = {
     ],
     rateGreeting: (hour) => (hour < 6 ? 'Still up? 🌙' : hour < 12 ? 'Good morning ☀️' : hour < 18 ? 'Good afternoon 👋' : 'Good evening 🌙'),
     rateStars: (count) => (count === 1 ? 'Rate 1 star on the Marketplace' : `Rate ${count} stars on the Marketplace`),
+    rateVotes: (count, average) => `${average.toFixed(1)} ★ · ${count} ${count === 1 ? 'review' : 'reviews'} on the Marketplace`,
     verbs: {
       edit: '✎ editing',
       run: '⏵ running',

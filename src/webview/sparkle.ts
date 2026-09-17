@@ -1,12 +1,13 @@
 /**
  * Scintillement des étoiles de l'encart de notation : à chaque nouvelle phrase, main.ts pose la classe
- * `sparkle` sur `#rate .stars` et cards.css allume les cinq étoiles une par une, deux fois de suite.
- * La classe est retirée à la fin de l'animation (ou après un délai de secours) pour pouvoir rejouer la fois suivante.
+ * `sparkle` sur `#rate .stars` et cards.css allume les cinq étoiles une par une, les éteint toutes, puis
+ * rend la vraie note. La classe est retirée à la fin de l'animation (ou après un délai de secours)
+ * pour pouvoir rejouer la fois suivante.
  */
 export const SPARKLE_CLASS = 'sparkle';
 
-/** Animation CSS : 2 passes × 1,2 s ; le filet part un peu après, au cas où animationend ne viendrait jamais. */
-const DEFAULT_FALLBACK_MS = 3_000;
+/** Animation CSS : une passe de 1,296 s ; le filet part un peu après, au cas où animationend ne viendrait jamais. */
+const DEFAULT_FALLBACK_MS = 2_000;
 
 interface Pending {
   timer: ReturnType<typeof setTimeout>;

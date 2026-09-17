@@ -49,6 +49,13 @@ describe('buildState', () => {
     expect(state.effortLevel).toBeUndefined();
   });
 
+  it('transmet la note du Marketplace quand elle est connue, rien sinon', () => {
+    const dir = makeClaudeDir();
+    const base = { claudeDir: dir, now: NOW, settings: SETTINGS, inactiveSessionRetentionMinutes: 10, locale: 'fr' as const };
+    expect(buildState({ ...base, rating: { average: 4.5, count: 3 } }).rating).toEqual({ average: 4.5, count: 3 });
+    expect(buildState(base)).not.toHaveProperty('rating');
+  });
+
   it('ne garde que les projets du workspace quand ses dossiers sont fournis', () => {
     const dir = makeClaudeDir();
     setupTwoProjects(dir);

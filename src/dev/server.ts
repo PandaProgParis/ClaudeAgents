@@ -5,6 +5,7 @@ import { rateBannerHtml } from '../banner';
 import { buildState, localUrls } from '../state';
 import { probeUrls } from '../portProbe';
 import type { Locale } from '../i18n';
+import type { MarketplaceRating } from '../marketplace';
 import type { FinishedAgentSettings } from '../types';
 
 /**
@@ -21,6 +22,8 @@ export interface StateQuery {
   usageFile: string;
   /** Dossiers « du workspace » simulés (?ws=, répétable) : leurs sessions restent affichées. */
   pinnedFolders?: string[];
+  /** Note du Marketplace simulée (?rating=moyenne,votes) : elle remplace celle lue en ligne. */
+  rating?: MarketplaceRating;
 }
 
 export interface DevServerOptions {
@@ -30,6 +33,8 @@ export interface DevServerOptions {
   root: string;
   log?: (message: string) => void;
   isPidAlive?: (pid: number) => boolean;
+  /** Note lue sur le Marketplace, demandée à chaque /state. */
+  rating?: () => MarketplaceRating | undefined;
 }
 
 const MODES: ReadonlySet<string> = new Set(['always', 'temporarily', 'never']);
@@ -40,10 +45,19 @@ function nonNegative(params: URLSearchParams, key: string, fallback: number): nu
   return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
-/** Réglages de rendu lus dans l'URL (?mode=&retention=&inactive=&locale=&ws=), avec les défauts de l'extension. */
+/** « 4.3,12 » → moyenne 4,3 sur 12 votes ; undefined si la moyenne sort de 0–5 ou si le compte n'est pas un entier ≥ 0. */
+function parseRating(raw: string | null): MarketplaceRating | undefined {
+  const [average, count] = (raw ?? '').split(',').map((part) => (part.trim() === '' ? NaN : Number(part)));
+  return raw !== null && average >= 0 && average <= 5 && Number.isInteger(count) && count >= 0
+    ? { average, count }
+    : undefined;
+}
+
+/** Réglages de rendu lus dans l'URL (?mode=&retention=&inactive=&locale=&ws=&rating=), avec les défauts de l'extension. */
 export function parseStateQuery(params: URLSearchParams): StateQuery {
   const mode = params.get('mode');
   const pinned = params.getAll('ws').filter((folder) => folder.trim() !== '');
+  const rating = parseRating(params.get('rating'));
   return {
     settings: {
       mode: mode !== null && MODES.has(mode) ? (mode as FinishedAgentSettings['mode']) : 'temporarily',
@@ -54,6 +68,7 @@ export function parseStateQuery(params: URLSearchParams): StateQuery {
     showUsage: params.get('usage') !== '0',
     usageFile: params.get('usage') !== null && params.get('usage') !== '0' ? (params.get('usage') as string) : '',
     ...(pinned.length > 0 ? { pinnedFolders: pinned } : {}),
+    ...(rating !== undefined ? { rating } : {}),
   };
 }
 
@@ -294,6 +309,7 @@ export function createDevServer(options: DevServerOptions): http.Server {
         const state = buildState({
           claudeDir: options.claudeDir,
           now: Date.now(),
+          rating: options.rating?.(),
           ...parseStateQuery(url.searchParams),
           log,
           isPidAlive: options.isPidAlive,

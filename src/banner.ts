@@ -26,10 +26,16 @@ export function pickPhrase(locale: Locale, hour: number, rng: () => number = Mat
   return pool[Math.floor(rng() * pool.length) % pool.length];
 }
 
+/** Remplissage (en %) des étoiles 1 à 5 pour une moyenne donnée : 3,5 → pleine, pleine, pleine, moitié, vide. */
+export function starFills(average: number): number[] {
+  return [0, 1, 2, 3, 4].map((before) => Math.round(Math.min(1, Math.max(0, average - before)) * 100));
+}
+
 /**
  * Les étoiles sont écrites de 5 à 1 : `flex-direction: row-reverse` les remet à l'endroit, ce qui laisse
  * `.star:hover ~ .star` atteindre celles affichées à gauche et dorer l'ensemble de 1 jusqu'à la survolée.
  * Le `<span class="msg">` porte la phrase initiale ; la webview (main.ts) la fait tourner via data-locale.
+ * `<span class="votes">` reste vide jusqu'à ce que la webview reçoive la note du Marketplace (webview/rating.ts).
  */
 export function rateBannerHtml(locale: Locale): string {
   const strings = STRINGS[locale];
@@ -37,5 +43,5 @@ export function rateBannerHtml(locale: Locale): string {
   const stars = [5, 4, 3, 2, 1]
     .map((count) => `<a class="star" href="${escape(REVIEW_URL)}" title="${escape(strings.rateStars(count))}">★</a>`)
     .join('');
-  return `<aside id="rate" data-locale="${escape(locale)}"><span class="msg">${escape(message)}</span><span class="stars">${stars}</span></aside>`;
+  return `<aside id="rate" data-locale="${escape(locale)}"><span class="msg">${escape(message)}</span><span class="rating"><span class="votes"></span><span class="stars">${stars}</span></span></aside>`;
 }

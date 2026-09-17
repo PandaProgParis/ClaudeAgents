@@ -3,6 +3,7 @@ import { isUrlAlive } from './portProbe';
 import { readUsage } from './usage';
 import { filterProjectsForWorkspace } from './visibility';
 import type { Locale } from './i18n';
+import type { MarketplaceRating } from './marketplace';
 import type { FinishedAgentSettings, ProjectNode, StateMessage } from './types';
 
 export interface StateOptions {
@@ -18,6 +19,8 @@ export interface StateOptions {
   /** Card des limites du forfait : lue seulement si activée, dans le fichier tenu par un outil tiers. */
   showUsage?: boolean;
   usageFile?: string;
+  /** Note de l'extension sur le Marketplace, lue à part (marketplace.ts) : transmise telle quelle. */
+  rating?: MarketplaceRating;
   log?: (message: string) => void;
   isPidAlive?: (pid: number) => boolean;
 }
@@ -39,6 +42,7 @@ export function buildState(options: StateOptions): StateMessage {
     projects: kept,
     ...usageOf(options),
     ...(options.pinnedFolders !== undefined ? { pinnedFolders: options.pinnedFolders } : {}),
+    ...(options.rating !== undefined ? { rating: options.rating } : {}),
     effortLevel: readEffortLevel(options.claudeDir),
     settings: options.settings,
     inactiveSessionRetentionMinutes: options.inactiveSessionRetentionMinutes,

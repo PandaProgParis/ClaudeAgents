@@ -1,13 +1,28 @@
 import * as os from 'os';
 import * as path from 'path';
+import { RatingRefresher, fetchMarketplaceRating, type StoredRating } from '../marketplace';
 import { createDevServer } from './server';
 
 // Point d'entrée de `npm run dev` (bundlé par esbuild dans dist/dev-server.js, relancé à chaque rebuild).
 const port = Number(process.env.PORT ?? 5173);
+// Vraie note du Marketplace, gardée en mémoire le temps que le serveur tourne.
+let storedRating: StoredRating | undefined;
+const rating = new RatingRefresher({
+  fetch: fetchMarketplaceRating,
+  now: Date.now,
+  load: () => storedRating,
+  save: (value) => {
+    storedRating = value;
+  },
+});
 const options = {
   claudeDir: path.join(os.homedir(), '.claude'),
   root: path.resolve(__dirname, '..'),
   log: (message: string) => console.log(message),
+  rating: () => {
+    rating.maybeRefresh();
+    return rating.current;
+  },
 };
 
 // « localhost » résout d'abord en ::1 sous Windows : on écoute les deux boucles locales, IPv6 en option.

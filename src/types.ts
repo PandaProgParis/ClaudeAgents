@@ -1,4 +1,5 @@
 import type { Locale } from './i18n';
+import type { MarketplaceRating } from './marketplace';
 
 export interface SessionRegistryEntry {
   pid: number;
@@ -106,6 +107,8 @@ export interface StateMessage {
   usageFile?: string;
   /** Dossiers du workspace : leurs sessions restent affichées au-delà de la rétention d'inactivité. */
   pinnedFolders?: string[];
+  /** Note de l'extension sur le Marketplace, absente tant qu'elle n'a jamais été lue. */
+  rating?: MarketplaceRating;
 }
 
 export type SddTaskState = 'done' | 'doing' | 'review' | 'pending';

@@ -2,6 +2,7 @@ import type { StateMessage } from '../types';
 import { pickPhrase } from '../banner';
 import type { Locale } from '../i18n';
 import { morphChildren } from './morph';
+import { applyRating } from './rating';
 import { renderApp } from './render';
 import { sparkleStars } from './sparkle';
 import { renderUsage } from './usageView';
@@ -126,10 +127,18 @@ root.addEventListener('click', (event) => {
   render();
 });
 
+/** Dernière note posée sur l'encart : elle ne change que quelques fois par jour, inutile de la reposer à chaque scan. */
+let lastRating = '';
+
 window.addEventListener('message', (event: MessageEvent<StateMessage>) => {
   state = event.data;
   // L'horloge locale peut différer de celle de l'extension : on aligne.
   clockSkew = Date.now() - state.now;
+  const rating = JSON.stringify(state.rating ?? null);
+  if (rating !== lastRating) {
+    lastRating = rating;
+    applyRating(document.getElementById('rate'), state.rating, state.locale ?? 'fr');
+  }
   render();
 });
 

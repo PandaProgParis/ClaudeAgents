@@ -7,6 +7,7 @@ import { buildState, localUrls } from './state';
 import { probeUrls } from './portProbe';
 import { countWaitingSessions } from './visibility';
 import { CardsViewProvider } from './cardsView';
+import { RatingRefresher, fetchMarketplaceRating, type StoredRating } from './marketplace';
 import { readUsage } from './usage';
 import { MENU_COMMAND, UsageStatusBar, type StatusSide } from './usageStatusBar';
 import type { StatusFormat } from './usageStatus';
@@ -19,6 +20,8 @@ const SCOPE_CONTEXT_KEY = 'claudeAgents.currentProjectOnly';
 /** Barre d'état : le compte à rebours avance chaque seconde, le fichier d'usage est relu toutes les 5 s. */
 const STATUS_TICK_MS = 1000;
 const STATUS_TICKS_PER_READ = 5;
+/** Dernière note lue sur le Marketplace, resservie au démarrage suivant sans requête. */
+const RATING_STATE_KEY = 'marketplaceRating';
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel('Claude Agents');
@@ -31,8 +34,18 @@ export function activate(context: vscode.ExtensionContext): void {
   let currentProjectOnly = context.workspaceState.get<boolean>(SCOPE_STATE_KEY, false);
   void vscode.commands.executeCommand('setContext', SCOPE_CONTEXT_KEY, currentProjectOnly);
 
+  // Note de l'encart de notation : le scan ne tourne que vue résolue, la requête part donc seulement
+  // quand la vue a été ouverte, au plus toutes les 6 h.
+  const rating = new RatingRefresher({
+    fetch: fetchMarketplaceRating,
+    now: Date.now,
+    load: () => context.globalState.get<StoredRating>(RATING_STATE_KEY),
+    save: (value) => void context.globalState.update(RATING_STATE_KEY, value),
+  });
+
   const runScan = (): void => {
     const now = Date.now();
+    rating.maybeRefresh();
     try {
       const config = vscode.workspace.getConfiguration('claudeAgents');
       const locale = resolveLocale(vscode.env.language);
@@ -47,6 +60,7 @@ export function activate(context: vscode.ExtensionContext): void {
         inactiveSessionRetentionMinutes: config.get<number>('inactiveSessionRetentionMinutes', 10),
         showUsage: config.get<boolean>('showUsage', true),
         usageFile: config.get<string>('usageFile', ''),
+        rating: rating.current,
         locale,
         workspaceFolders: currentProjectOnly ? workspaceFolders : undefined,
         // Les sessions du workspace ouvert restent affichées au-delà de la rétention d'inactivité.

@@ -70,6 +70,61 @@ describe('cards.css — survol des étoiles de l’encart de notation', () => {
   });
 });
 
+describe('cards.css — vraie note et scintillement des étoiles', () => {
+  const rules = parseRules(css);
+  const body = (selector: string) =>
+    [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((rule) => rule[1].split(',').map((s) => s.trim()).includes(selector))?.[2];
+  const GOLD = '#f5b301';
+
+  /** Pas d'un @keyframes : [pourcentage, 'gold' | 'grey'] triés par pourcentage. */
+  function timeline(name: string): Array<[number, 'gold' | 'grey']> {
+    const block = css.match(new RegExp(`@keyframes ${name}\\s*\\{((?:[^{}]*\\{[^{}]*\\})*)\\s*\\}`))?.[1] ?? '';
+    const steps: Array<[number, 'gold' | 'grey']> = [];
+    for (const step of block.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const color = step[2].includes(GOLD) ? 'gold' : 'grey';
+      for (const percent of step[1].split(',')) {
+        steps.push([Number(percent.trim().replace('%', '')), color]);
+      }
+    }
+    return steps.sort((a, b) => a[0] - b[0]);
+  }
+
+  it('joue une seule passe de 6 temps de 216 ms : 10 % plus vite que les 240 ms d’avant', () => {
+    expect(body('#rate .stars.sparkle .star')).toMatch(/animation:\s*sparkle-5\s+1\.296s\s+step-end\s*;/);
+  });
+
+  it('allume les étoiles une par une, les garde un temps, les éteint toutes, puis rend la main à la vraie note', () => {
+    const step = 100 / 6;
+    for (let star = 1; star <= 5; star++) {
+      const expected: Array<[number, 'gold' | 'grey']> =
+        star === 1 ? [[0, 'gold']] : [[0, 'grey'], [(star - 1) * step, 'gold']];
+      expected.push([5 * step, 'grey'], [100, 'grey']);
+      const actual = timeline(`sparkle-${star}`);
+      expect(actual.map(([, color]) => color), `sparkle-${star}`).toEqual(expected.map(([, color]) => color));
+      actual.forEach(([percent], index) => expect(percent, `sparkle-${star}`).toBeCloseTo(expected[index][0], 2));
+    }
+  });
+
+  it('dessine la vraie note en remplissant chaque étoile de --fill', () => {
+    const rated = body('#rate .stars.rated .star');
+    expect(rated).toMatch(/var\(--fill/);
+    expect(rated).toMatch(/(?:^|[;\s])background-clip:\s*text/);
+    expect(rated).toMatch(/color:\s*transparent/);
+  });
+
+  it('au survol, la note affichée s’efface devant la note que l’on s’apprête à donner', () => {
+    const rated = rules.find((rule) => rule.selectors.includes('#rate .stars.rated .star'))!;
+    const grey = rules.find((rule) => rule.selectors.includes('#rate .stars:hover .star'))!;
+    expect(rated.index).toBeLessThan(grey.index);
+    expect(compare(specificity('#rate .stars.rated .star'), specificity('#rate .stars:hover .star'))).toBeLessThanOrEqual(0);
+    expect(body('#rate .stars:hover .star')).toMatch(/background:\s*none/);
+  });
+
+  it('masque le nombre de votes tant qu’il est vide', () => {
+    expect(body('#rate .votes:empty')).toMatch(/display:\s*none/);
+  });
+});
+
 describe('cards.css — carrés SDD', () => {
   /** Corps d'une règle dont un sélecteur correspond exactement. */
   function body(selector: string): string | undefined {

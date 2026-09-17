@@ -751,6 +751,22 @@ body {
   transition: opacity 0.3s ease;
 }
 
+#rate .rating {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Nombre de votes du Marketplace, à gauche des étoiles ; vide tant que la note n'a pas été lue. */
+#rate .votes {
+  font-variant-numeric: tabular-nums;
+  cursor: help;
+}
+
+#rate .votes:empty {
+  display: none;
+}
+
 /* Étoiles écrites de 5 à 1 puis remises à l'endroit : « :hover ~ » atteint alors celles affichées à gauche. */
 #rate .stars {
   display: flex;
@@ -766,10 +782,25 @@ body {
   color: #f5b301;
 }
 
+/* Vraie note du Marketplace (webview/rating.ts) : chaque étoile dorée jusqu'à son --fill, grise au-delà.
+   Le dégradé est découpé sur le glyphe ; `background` d'abord, sa forme courte remettrait background-clip à zéro. */
+#rate .stars.rated .star {
+  background: linear-gradient(
+    90deg,
+    #f5b301 var(--fill, 100%),
+    var(--vscode-tree-inactiveIndentGuidesStroke) var(--fill, 100%)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
 /* Au survol, seules les étoiles jusqu'à la survolée restent dorées : on lit la note que l'on s'apprête à donner.
    Les sélecteurs dorés passent par `.stars` pour peser au moins autant que la mise en gris (1 id, 3 classes) :
-   `#rate .star:hover` seul perdait et laissait la survolée grise (5e survolée → 4 dorées). */
+   `#rate .star:hover` seul perdait et laissait la survolée grise (5e survolée → 4 dorées).
+   Écrite après la vraie note et aussi spécifique, la mise en gris retire aussi son dégradé. */
 #rate .stars:hover .star {
+  background: none;
   color: var(--vscode-tree-inactiveIndentGuidesStroke);
 }
 
@@ -779,11 +810,12 @@ body {
 }
 
 /*
- * Scintillement à chaque nouvelle phrase (main.ts pose .sparkle, sparkle.ts la retire à la fin) : les étoiles
- * s'allument une par une, deux passes de 1,2 s. Écrites de 5 à 1 dans le DOM, la première affichée est nth-child(5).
+ * Scintillement à chaque nouvelle phrase (main.ts pose .sparkle, sparkle.ts la retire à la fin), en 6 temps
+ * de 216 ms : les étoiles s'allument une par une, restent allumées un temps, s'éteignent toutes, puis la fin
+ * de l'animation rend d'un coup la vraie note. Écrites de 5 à 1 dans le DOM, la première affichée est nth-child(5).
  */
 #rate .stars.sparkle .star {
-  animation: sparkle-5 1.2s step-end 2;
+  animation: sparkle-5 1.296s step-end;
 }
 
 #rate .stars.sparkle .star:nth-child(5) {
@@ -803,28 +835,32 @@ body {
 }
 
 @keyframes sparkle-1 {
-  0% { color: var(--vscode-tree-inactiveIndentGuidesStroke); }
-  4%, 100% { color: #f5b301; }
+  0% { color: #f5b301; }
+  83.333%, 100% { color: var(--vscode-tree-inactiveIndentGuidesStroke); }
 }
 
 @keyframes sparkle-2 {
-  0%, 19% { color: var(--vscode-tree-inactiveIndentGuidesStroke); }
-  20%, 100% { color: #f5b301; }
+  0% { color: var(--vscode-tree-inactiveIndentGuidesStroke); }
+  16.667% { color: #f5b301; }
+  83.333%, 100% { color: var(--vscode-tree-inactiveIndentGuidesStroke); }
 }
 
 @keyframes sparkle-3 {
-  0%, 39% { color: var(--vscode-tree-inactiveIndentGuidesStroke); }
-  40%, 100% { color: #f5b301; }
+  0% { color: var(--vscode-tree-inactiveIndentGuidesStroke); }
+  33.333% { color: #f5b301; }
+  83.333%, 100% { color: var(--vscode-tree-inactiveIndentGuidesStroke); }
 }
 
 @keyframes sparkle-4 {
-  0%, 59% { color: var(--vscode-tree-inactiveIndentGuidesStroke); }
-  60%, 100% { color: #f5b301; }
+  0% { color: var(--vscode-tree-inactiveIndentGuidesStroke); }
+  50% { color: #f5b301; }
+  83.333%, 100% { color: var(--vscode-tree-inactiveIndentGuidesStroke); }
 }
 
 @keyframes sparkle-5 {
-  0%, 79% { color: var(--vscode-tree-inactiveIndentGuidesStroke); }
-  80%, 100% { color: #f5b301; }
+  0% { color: var(--vscode-tree-inactiveIndentGuidesStroke); }
+  66.667% { color: #f5b301; }
+  83.333%, 100% { color: var(--vscode-tree-inactiveIndentGuidesStroke); }
 }
 
 /* Cache d'invite (règle de Claude Code) : chaud avec les minutes restantes, sinon horloge seule, atténuée. */
